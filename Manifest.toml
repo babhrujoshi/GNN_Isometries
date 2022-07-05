@@ -1012,6 +1012,12 @@ git-tree-sha1 = "a8cbf066b54d793b9a48c5daa5d586cf2b5bd43d"
 uuid = "99f44e22-a591-53d1-9472-aa23ef4bd671"
 version = "1.1.0"
 
+[[NBInclude]]
+deps = ["JSON", "Markdown", "SoftGlobalScope"]
+git-tree-sha1 = "ae1ca609f7a3eb019412e8bee12663e48188f1a9"
+uuid = "0db19996-df87-5ea3-a455-e3a50d440464"
+version = "2.3.0"
+
 [[NNlib]]
 deps = ["Adapt", "ChainRulesCore", "LinearAlgebra", "Pkg", "Requires", "Statistics"]
 git-tree-sha1 = "1a80840bcdb73de345230328d49767ab115be6f2"
