@@ -1,8 +1,11 @@
 [deps]
 BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
+Debugger = "31a5f54b-26ea-5ae9-a837-f05ce5417438"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+DocSeeker = "33d173f1-3be9-53c5-a697-8225b67db89c"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+Hyperopt = "93e5fe13-2215-51db-baaf-2e9a34fb2712"
 IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
 ImageFiltering = "6a3955dd-da59-5b1f-98d4-e7296123deb5"
 ImageIO = "82e4d734-157c-48bb-816b-45c225c6df19"
