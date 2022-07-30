@@ -119,3 +119,7 @@ epoch,negative_elbo
 1,4.987709716192295e14
 epoch,negative_elbo
 1,5.030146707176657e14
+epoch,negative_elbo
+1,5.037737129110653e14
+epoch,negative_elbo
+1,5.0402742439339325e14
