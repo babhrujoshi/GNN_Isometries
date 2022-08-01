@@ -1,6 +1,6 @@
 using Flux
 
-function optimise!(z::AbstractArray{Float64,1}, opt::Flux.Optimise.AbstractOptimiser, loss::Function; tolerance = 1e-4 ::Float64, out_toggle = 0 ::Integer, max_iter = 10_000 ::Integer)
+function optimise!(z::AbstractArray{AbstractFloat,1}, opt::Flux.Optimise.AbstractOptimiser, loss::Function; tolerance = 1e-4, out_toggle = 0 ::Integer, max_iter = 10_000 ::Integer)
     tol2 = tolerance^2
     ps = params(z)
     iter=1
@@ -23,7 +23,7 @@ function optimise!(z::AbstractArray{Float64,1}, opt::Flux.Optimise.AbstractOptim
     return z
 end
 
-function recover_signal(x₀::AbstractArray{Float64, 1}, k::Integer, A::Matrix{Float64}, model::Function; opt = Flux.Optimise.ADAM(1e-3)::Flux.Optimise.AbstractOptimiser, kwargs...)
+function recover_signal(x₀::AbstractArray{AbstractFloat, 1}, k::Integer, A::Matrix{Float64}, model::Function; opt = Flux.Optimise.ADAM(1e-3)::Flux.Optimise.AbstractOptimiser, kwargs...)
     k̂ = randn(k)/sqrt(k)
     y= A*x₀
     function loss()

@@ -1,5 +1,6 @@
 using Flux: params, gradient, update!
-
+using FFTW
+using Distributions
 ##
 """
     optimise(init_z, loss, opt, tolerance, [out_toggle = 0,][max_iter = 1_000_000])
@@ -8,7 +9,7 @@ using Flux: params, gradient, update!
 
     loss takes z as an argument.
 """
-function optimise!(loss, z; opt::Flux.Optimise.AbstractOptimiser=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_toggle=1e5, max_iter::Integer=500_000)
+function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_toggle=1e5, max_iter=500_000)
     tol2 = tolerance^2
     ps = params(z)
     iter = 1
@@ -40,7 +41,6 @@ function recoversignal(measurements, A, model, code_dim; kwargs...)
     function loss(codeguess)
         return sum(abs2, A * model(codeguess) - measurements)
     end
-
     model(optimise!(loss, randn(code_dim) / sqrt(code_dim); kwargs...))
     #return opt_code != nothing ? model(opt_code) : nothing
 end
@@ -51,12 +51,14 @@ function recoveryerror(x₀, model, A, k; kwargs...)
     norm(recoversignal(y, A, model, k; kwargs...) - x₀)
 end
 
-function samplefourierwithoutreplacement(aimed_m, n, get_true_m=false)
+function samplefourierwithoutreplacement(aimed_m, n)
     F = dct(diagm(ones(n)), 2)
     sampling = rand(Bernoulli(aimed_m / n), n)
-    return get_true_m ? (sum(sampling), F[sampling, :] * sqrt(n / true_m)) : F[sampling, :] * sqrt(n / true_m) # normalize it
+    true_m = sum(sampling)
+    F[sampling, :] * sqrt(n / true_m) 
+    #return get_true_m ? (true_m, normalized_F) : normalized_F # normalize it
 end
 
-function fourier(dim)
+function fullfourier(dim)
     dct(diagm(ones(dim)), 2)
 end
