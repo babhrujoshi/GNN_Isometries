@@ -1,4 +1,12 @@
 using Test
+using TensorBoardLogger
+using Logging
+
+#Base.global_logger(TBLogger("./reusefiles/logs/"))
+Logging.global_logger(Logging.ConsoleLogger())
+
+@info("name", test=0.1, other=0.2)
+@info other = 0.4
 
 @testset "VAE" begin
     include("./vaemodel.jl")
