@@ -1,6 +1,8 @@
 using Test
 using TensorBoardLogger
 using Logging
+using MLDatasets
+using Flux: @epochs, train!, params, DataLoader
 
 #Base.global_logger(TBLogger("./reusefiles/logs/"))
 Logging.global_logger(Logging.ConsoleLogger())
@@ -23,6 +25,22 @@ Logging.global_logger(Logging.ConsoleLogger())
     vaemodel(x)
     vaeloss(vaemodel, 0.5, 0.5)(x)
 
-    x = [randn(input_length, 3) for i in 1:5]
-    train!(vaeloss(vaemodel, 0.5, 0.5), params(vaemodel), x, Flux.Optimise.ADAM(0.001))
+    data = reshape(MNIST(Float32,:train).features, 28^2, :)
+    loss = vaeloss(vaemodel, 0.5, 0.5)
 end
+
+vaemodel = makevae()
+
+loss = vaeloss(vaemodel, 0.5f0, 0.5)
+data = reshape(MNIST(Float32,:train).features, 28^2, :)[:,64]
+loader = DataLoader(data, batchsize=32, shuffle=true)
+vaemodel(data)
+with_logger(TBLogger("./reusefiles/logs/")) do
+    @epochs 2 train!(loss, params(vaemodel), loader, Flux.Optimise.ADAM(0.001))
+end
+
+#include("./trainloops.jl")
+#trainlognsave(loss,)
+
+#does not work
+#train!(vaeloss(vaemodel, 0.5, 0.5) ,params(vaemodel), loader, Flux.Optimise.ADAM(0.001))
