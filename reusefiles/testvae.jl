@@ -32,7 +32,7 @@ end
 vaemodel = makevae()
 
 loss = vaeloss(vaemodel, 0.5f0, 0.5)
-data = reshape(MNIST(Float32,:train).features, 28^2, :)[:,64]
+data = reshape(MNIST(Float32,:train).features[:,:,1:64], 28^2, :)
 loader = DataLoader(data, batchsize=32, shuffle=true)
 vaemodel(data)
 with_logger(TBLogger("./reusefiles/logs/")) do
