@@ -47,13 +47,15 @@ end
 #loss function
 function vaeloss(vaenetwork, β, λ)
     function loss(x)
-        @assert size(x)[end] != 0
         z, μ, logvar = vaenetwork.encoder(x)
         x̂ = vaenetwork.decoder(z)
 
         #mismatch + kl from gaussian + l2 regularisation
-        binarycrossentropy(x̂, x, agg=sum) - 0.5β * sum(@. exp(logvar) + μ^2 - logvar - 1.0) + λ*sum(t -> sum(abs2, t), params(vaenetwork))
-    end
+        mismatch = binarycrossentropy(x̂, x, agg=sum)
+        klfromgaussian = - 0.5β * sum(@. exp(logvar) + μ^2 - logvar - 1.0)
+        l2reg = λ*sum(t -> sum(abs2, t), params(vaenetwork))
+
+        mismatch + klfromgaussian + l2reg
 end
 
 
