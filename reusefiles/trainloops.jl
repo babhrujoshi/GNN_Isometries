@@ -1,10 +1,13 @@
 using Flux
 using Flux: train!, pullback
 using ProgressLogging
+using Logging
 using TensorBoardLogger
 using BSON: @save
 using CUDA
+using RollingFunctions
 
+include("./runningavg.jl")
 
 """
 loss: loss function taking a data batch as argument.
@@ -12,7 +15,8 @@ data: an itterable that feeds data vectors matching model input when itterated u
 """
 
 function trainandgetloss!(lossfn, pars, dataloader, opt::Flux.Optimise.AbstractOptimiser)
-    acc_loss = 0f0
+    nextelt, getloss = runningavg()
+    numelts = length(dataloader)*32
     for x_batch in dataloader # pullback function returns the result (loss) and a pullback operator (back)
         loss, back = pullback(pars) do
             lossfn(x_batch)
@@ -23,17 +27,17 @@ function trainandgetloss!(lossfn, pars, dataloader, opt::Flux.Optimise.AbstractO
         if isnan(loss)
             continue 
         end
-        acc_loss += loss
+        nextelt(loss/numelts)
     end
-    acc_loss
+    getloss()
 end
 
 function evaluateloss(lossfn, data)
-    cumul_loss = 0f0
+    nextelt, getloss = runningavg()
     for x_batch in data
-        cumul_loss += lossfn(x_batch)
+        nextelt(lossfn(x_batch))
     end
-    cumul_loss
+    getloss()
 end
 
 

@@ -42,20 +42,6 @@ using CUDA
     trainlognsave(loss, vaemodel, params(vaemodel), loader, Flux.Optimise.ADAM(0.001), 20, "./reusefiles/models/","./reusefiles/logs/",save_interval = 4)
 end
 
-function trainvaefromMNIST()
-    include("./vaemodel.jl")
-    include("./trainloops.jl")
-    vaemodel = makevae()
-    loss = vaeloss(vaemodel, 0.5, 0.5)
-    traindata = reshape(MNIST(Float32,:train).features[:,:,1:4] |> gpu, 28^2, :)
-    testdata = reshape(MNIST(Float32,:test).features[:,:,1:4] |> gpu, 28^2, :)
-    trainloader = DataLoader(traindata, batchsize=2, shuffle=true)
-    testloader = DataLoader(testdata, batchsize=2, shuffle=true)
-    trainvalidatelognsave(loss, vaemodel, params(vaemodel), trainloader, testloader, Flux.Optimise.ADAM(0.001), 4, "./reusefiles/models/","./reusefiles/logs/",saveinterval = 2, validateinterval=2)
-end
-
-trainvaefromMNIST()
-
 #include("./trainloops.jl")
 #trainlognsave(loss,)
 
