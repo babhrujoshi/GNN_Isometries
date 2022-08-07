@@ -6,7 +6,6 @@ struct VaeEncoder{T,V,L}
     splitedμ::V
     splitedlogvar::L
 end
-
 Flux.@functor VaeEncoder
 
 function (m::VaeEncoder)(x::AbstractArray)
@@ -40,7 +39,7 @@ function makevae()
         Dense(500 => 784, bias=false, sigmoid, init=gaussinit)
     )
 
-    FullVae(encoder, decoder)
+    FullVae(encoder, decoder) |> gpu
 end
 
 
@@ -56,6 +55,7 @@ function vaeloss(vaenetwork, β, λ)
         l2reg = λ*sum(t -> sum(abs2, t), params(vaenetwork))
 
         mismatch + klfromgaussian + l2reg
+    end
 end
 
 

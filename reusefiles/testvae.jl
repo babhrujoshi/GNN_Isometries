@@ -2,10 +2,12 @@ using Test
 using TensorBoardLogger
 using Logging
 using MLDatasets
+using Flux
 using Flux: @epochs, train!, params, DataLoader
+using CUDA
 
 #Base.global_logger(TBLogger("./reusefiles/logs/"))
-Logging.global_logger(Logging.ConsoleLogger())
+#Logging.global_logger(Logging.ConsoleLogger())
 
 @info("name", test=0.1, other=0.2)
 @info other = 0.4
@@ -25,19 +27,34 @@ Logging.global_logger(Logging.ConsoleLogger())
     vaemodel(x)
     vaeloss(vaemodel, 0.5, 0.5)(x)
 
-    data = reshape(MNIST(Float32,:train).features, 28^2, :)
     loss = vaeloss(vaemodel, 0.5, 0.5)
+    data = reshape(MNIST(Float32,:train).features[:,:,1:4], 28^2, :)
+    vaemodel(data[:,1:2])
+    
+    loader = DataLoader(data, batchsize=2, shuffle=true)
+
+    #@epochs 2 train!(loss, params(vaemodel), loader, Flux.Optimise.ADAM(0.001))
+
+    include("trainloops.jl")
+
+    #trainlognsave(loss, vaemodel, params(vaemodel), loader, Flux.Optimise.ADAM(0.001), 20, "./reusefiles/models/","./reusefiles/logs/",save_interval = 4)
+
+    trainlognsave(loss, vaemodel, params(vaemodel), loader, Flux.Optimise.ADAM(0.001), 20, "./reusefiles/models/","./reusefiles/logs/",save_interval = 4)
 end
 
-vaemodel = makevae()
-
-loss = vaeloss(vaemodel, 0.5f0, 0.5)
-data = reshape(MNIST(Float32,:train).features[:,:,1:64], 28^2, :)
-loader = DataLoader(data, batchsize=32, shuffle=true)
-vaemodel(data)
-with_logger(TBLogger("./reusefiles/logs/")) do
-    @epochs 2 train!(loss, params(vaemodel), loader, Flux.Optimise.ADAM(0.001))
+function trainvaefromMNIST()
+    include("./vaemodel.jl")
+    include("./trainloops.jl")
+    vaemodel = makevae()
+    loss = vaeloss(vaemodel, 0.5, 0.5)
+    traindata = reshape(MNIST(Float32,:train).features[:,:,1:4] |> gpu, 28^2, :)
+    testdata = reshape(MNIST(Float32,:test).features[:,:,1:4] |> gpu, 28^2, :)
+    trainloader = DataLoader(traindata, batchsize=2, shuffle=true)
+    testloader = DataLoader(testdata, batchsize=2, shuffle=true)
+    trainvalidatelognsave(loss, vaemodel, params(vaemodel), trainloader, testloader, Flux.Optimise.ADAM(0.001), 4, "./reusefiles/models/","./reusefiles/logs/",saveinterval = 2, validateinterval=2)
 end
+
+trainvaefromMNIST()
 
 #include("./trainloops.jl")
 #trainlognsave(loss,)
