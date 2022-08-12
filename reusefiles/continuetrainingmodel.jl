@@ -17,4 +17,4 @@ trainloader = DataLoader(traindata, batchsize=32, shuffle=true)
 testloader = DataLoader(testdata, batchsize=32, shuffle=true)
 
 
-trainvalidatelognsave(loss, model, params(model), trainloader, testloader, Flux.Optimise.ADAM(0.0001), 100, "./reusefiles/models/", "./reusefiles/logs/", saveinterval=10, validateinterval=5)
+trainvalidatelognsave(loss, model, params(model), trainloader, testloader, Flux.Optimise.ADAM(0.00005), 100, "./reusefiles/models/", "./reusefiles/logs/", saveinterval=10, validateinterval=5)

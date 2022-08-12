@@ -1,7 +1,13 @@
 using Flux: params, gradient, update!
 using FFTW
 using Distributions
+using LinearAlgebra
+using TensorBoardLogger
+using Logging
 ##
+
+
+
 """
     optimise(init_z, loss, opt, tolerance, [out_toggle = 0,][max_iter = 1_000_000])
 
@@ -9,27 +15,32 @@ using Distributions
 
     loss takes z as an argument.
 """
-function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_toggle=1e5, max_iter=500_000)
+function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_toggle=1e4, max_iter=500_000, tblogdir=nothing)
     tol2 = tolerance^2
+    logger = !isnothing(tblogdir) ? TBLogger(tblogdir) : current_logger()
+
     ps = params(z)
     iter = 1
     arglessloss() = loss(z)
-    while true
-        if iter > max_iter
-            @warn "Max num. iterations reached"
-            return missing
+
+    with_logger(logger) do
+        while true
+            if iter > max_iter
+                @warn "Max num. iterations reached"
+                return missing
+            end
+            grads = gradient(arglessloss, ps) #loss cannot have any arguments
+            update!(opt, ps, grads)
+            succ_error = sum(abs2, grads[z])
+            if out_toggle != 0 && iter % out_toggle == 0
+                @info "====> In Gradient:" iter grad_size = sqrt(succ_error) lossval = sqrt(loss(z))
+            end
+            if succ_error < tol2
+                @info sqrt(succ_error)
+                break
+            end
+            iter += 1
         end
-        grads = gradient(arglessloss, ps) #loss cannot have any arguments
-        update!(opt, ps, grads)
-        succ_error = sum(abs2, grads[z])
-        if out_toggle != 0 && iter % out_toggle == 0
-            @info "====> In Gradient:" iter grad_size = (sqrt(succ_error)) tolerance error = string(sqrt(loss(z)))
-        end
-        if succ_error < tol2
-            @info sqrt(succ_error)
-            break
-        end
-        iter += 1
     end
     return z
 end
@@ -41,6 +52,7 @@ function recoversignal(measurements, A, model, code_dim; kwargs...)
     function loss(codeguess)
         return sum(abs2, A * model(codeguess) - measurements)
     end
+    #model(optimise!(loss, randn(code_dim) / sqrt(code_dim); kwargs...))
     model(optimise!(loss, randn(code_dim) / sqrt(code_dim); kwargs...))
     #return opt_code != nothing ? model(opt_code) : nothing
 end
@@ -55,10 +67,18 @@ function samplefourierwithoutreplacement(aimed_m, n)
     F = dct(diagm(ones(n)), 2)
     sampling = rand(Bernoulli(aimed_m / n), n)
     true_m = sum(sampling)
-    F[sampling, :] * sqrt(n / true_m) 
+    F[sampling, :] * sqrt(n / true_m)
     #return get_true_m ? (true_m, normalized_F) : normalized_F # normalize it
 end
 
 function fullfourier(dim)
     dct(diagm(ones(dim)), 2)
 end
+
+function singlerecoveryfourierexperiment(x₀, model, k, n, aimed_m; kwargs...)
+    A = samplefourierwithoutreplacement(aimed_m, n)
+    measurements = A * x₀
+    recoveredsignal = recoversignal(measurements, A, model, k; kwargs...)
+    return recoveredsignal, norm(recoveredsignal - x₀)
+end
+
