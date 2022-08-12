@@ -7,7 +7,7 @@ using BSON: @save
 using CUDA
 using RollingFunctions
 
-include("./runningavg.jl")
+#include("./runningavg.jl")
 
 """
 loss: loss function taking a data batch as argument.
@@ -15,7 +15,8 @@ data: an itterable that feeds data vectors matching model input when itterated u
 """
 
 function trainandgetloss!(lossfn, pars, dataloader, opt::Flux.Optimise.AbstractOptimiser)
-    nextelt, getloss = runningavg()
+    #nextelt, getloss = runningavg()
+    accloss = 0.0f0
     numelts = length(dataloader) * 32
     for x_batch in dataloader # pullback function returns the result (loss) and a pullback operator (back)
         loss, back = pullback(pars) do
@@ -27,17 +28,19 @@ function trainandgetloss!(lossfn, pars, dataloader, opt::Flux.Optimise.AbstractO
         if isnan(loss)
             continue
         end
-        nextelt(loss / numelts)
+        accloss += loss
     end
-    getloss()
+    accloss / numelts
 end
 
 function evaluateloss(lossfn, data)
-    nextelt, getloss = runningavg()
+    #nextelt, getloss = runningavg()
+    accloss = 0.0f0
+    numelts = length(data) * 32
     for x_batch in data
-        nextelt(lossfn(x_batch))
+        accloss += lossfn(x_batch)
     end
-    getloss()
+    accloss / numelts
 end
 
 
@@ -68,16 +71,27 @@ end
 function trainvalidatelognsave(lossfn, model, pars::Flux.Params, traindata, validatedata, opt::Flux.Optimise.AbstractOptimiser, numepochs, savedir, tblogdir; saveinterval=10, validateinterval=10, label="")
     # The training loop for the model
     tblogger = TBLogger(tblogdir)
+    saveindex = 0
+    function logvalidation()
+        with_logger(tblogger) do
+            @info "validation" lossval = evaluateloss(lossfn, validatedata)
+        end
+    end
+    function savemodel()
+        @save string(savedir, label, "intrain", saveindex) model opt
+        saveindex += 1
+    end
     #numbatches = length(data)
-
     @progress for epochnum in 1:numepochs
 
-        loss = trainandgetloss!(lossfn, pars, traindata, opt)
-
-        with_logger(tblogger) do
-            @info "epoch log" loss
-            if epochnum % validateinterval == 0
-                @info "validating" epoch = epochnum evaluateloss(lossfn, validatedata)
+        #loss = trainandgetloss!(lossfn, pars, traindata, opt)
+        train!(lossfn, pars, traindata, opt,
+            cb=[Flux.throttle(logvalidation, 60 * 5),
+                Flux.throttle(savemodel, 60 * 15)
+            ])
+        if epochnum % validateinterval == 0
+            with_logger(tblogger) do
+                @info "validating" epoch = epochnum lossval = evaluateloss(lossfn, validatedata)
             end
         end
 

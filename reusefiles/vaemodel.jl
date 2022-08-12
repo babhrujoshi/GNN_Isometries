@@ -1,5 +1,6 @@
 using Flux
 using Flux: binarycrossentropy, train!
+using Statistics
 
 struct VaeEncoder{T,V,L}
     encoderbody::T
@@ -12,7 +13,8 @@ function (m::VaeEncoder)(x::AbstractArray)
     intermediate = m.encoderbody(x)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
-    z = μ + map(t -> randn() * t, exp.(0.5 .* logvar))
+    randcoeffs = randn(size(logvar)...)
+    z = μ + randcoeffs .* exp.(0.5 .* logvar)
     return z, μ, logvar
 end
 
@@ -42,21 +44,21 @@ function makevae()
     FullVae(encoder, decoder) |> gpu
 end
 
+function klfromgaussian(μ, logvar)
+    0.5 * sum(@. exp(logvar) + μ^2 - logvar - 1.0)
+end
+
+function l2reg(pars)
+    sum(x -> sum(abs2, x), pars)
+end
+
+Flux.Losses.mse
 
 #loss function
 function vaeloss(vaenetwork, β, λ)
     function loss(x)
         z, μ, logvar = vaenetwork.encoder(x)
         x̂ = vaenetwork.decoder(z)
-
-        #mismatch + kl from gaussian + l2 regularisation
-        mismatch = binarycrossentropy(x̂, x, agg=sum)
-        klfromgaussian = - 0.5β * sum(@. exp(logvar) + μ^2 - logvar - 1.0)
-        l2reg = λ*sum(t -> sum(abs2, t), params(vaenetwork))
-
-        mismatch + klfromgaussian + l2reg
+        binarycrossentropy(x̂, x) + β * klfromgaussian(μ, logvar) + λ * l2reg(params(vaenetwork))
     end
 end
-
-
-
