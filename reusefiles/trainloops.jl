@@ -68,42 +68,51 @@ function trainlognsave(lossfn, model, pars::Flux.Params, data, opt::Flux.Optimis
 end
 
 
-function trainvalidatelognsave(lossfn, model, pars::Flux.Params, traindata, validatedata, opt::Flux.Optimise.AbstractOptimiser, numepochs, savedir, tblogdir; saveinterval=10, validateinterval=10, label="")
+function trainvalidatelognsave(lossfn, model, pars::Flux.Params, traindata, validatedata, opt::Flux.Optimise.AbstractOptimiser, numepochs, savedir, tblogdir; saveinterval=40, loginterval=10, label="")
     # The training loop for the model
     tblogger = TBLogger(tblogdir)
     saveindex = 0
-    function logvalidation()
-        with_logger(tblogger) do
-            @info "validation" lossval = evaluateloss(lossfn, validatedata)
-        end
-    end
+
     function savemodel()
         @save string(savedir, label, "intrain", saveindex) model opt
         saveindex += 1
     end
+
     #numbatches = length(data)
     @progress for epochnum in 1:numepochs
 
         #loss = trainandgetloss!(lossfn, pars, traindata, opt)
-        train!(lossfn, pars, traindata, opt,
-            cb=[Flux.throttle(logvalidation, 60 * 5),
-                Flux.throttle(savemodel, 60 * 15)
-            ])
-        if epochnum % validateinterval == 0
-            with_logger(tblogger) do
-                @info "validating" epoch = epochnum lossval = evaluateloss(lossfn, validatedata)
+        #train!(lossfn, pars, traindata, opt,
+        #    cb=[Flux.throttle(logvalidation, logtimeinterval),
+        #        Flux.throttle(savemodel, savetimeinterval)
+        #    ])
+        for (step, x_batch) in enumerate(traindata) # pullback function returns the result (loss) and a pullback operator (back)
+            loss, back = pullback(pars) do
+                lossfn(x_batch)
             end
-        end
+            # Feed the pullback 1 to obtain the gradients and update then model parameters
+            gradients = back(1.0f0)
+            Flux.Optimise.update!(opt, pars, gradients)
 
-        if epochnum % saveinterval == 0
-            @save string(savedir, label, "_epoch_", epochnum) model opt
+            if step % loginterval == 0
+                with_logger(tblogger) do
+                    @info "loss" loss
+                end
+            end
+
+            if step % saveinterval == 0
+                savemodel()
+                with_logger(tblogger) do
+                    @info "validation" evaluateloss(lossfn, validatedata)
+                end
+                @save string(savedir, label, "_epoch_", epochnum) model opt
+            end
+
+
         end
 
     end
-    with_logger(tblogger) do
-        @info "validating" epoch = numepochs evaluateloss(lossfn, validatedata)
-        @save string(savedir, label, "_final_epoch_", numepochs) model opt
-    end
+    savemodel()
     @info "training complete!"
 end
 

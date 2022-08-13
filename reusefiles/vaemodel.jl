@@ -14,7 +14,7 @@ function (m::VaeEncoder)(x::AbstractArray)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
     randcoeffs = randn(size(logvar)...)
-    z = μ + randcoeffs .* exp.(0.5 .* logvar)
+    z = μ .+ randcoeffs .* exp.(0.5 .* logvar)
     return z, μ, logvar
 end
 
@@ -45,7 +45,7 @@ function makevae()
 end
 
 function klfromgaussian(μ, logvar)
-    0.5 * sum(@. exp(logvar) + μ^2 - logvar - 1.0)
+    0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))
 end
 
 function l2reg(pars)
@@ -57,8 +57,17 @@ Flux.Losses.mse
 #loss function
 function vaeloss(vaenetwork, β, λ)
     function loss(x)
+        len = length(x)
         z, μ, logvar = vaenetwork.encoder(x)
         x̂ = vaenetwork.decoder(z)
-        binarycrossentropy(x̂, x) + β * klfromgaussian(μ, logvar) + λ * l2reg(params(vaenetwork))
+        binarycrossentropy(x̂, x; agg=sum) / len + β * klfromgaussian(μ, logvar) / len + λ * l2reg(params(vaenetwork))
+    end
+end
+
+function openvaeloss(vaenetwork, β, λ)
+    function loss(x)
+        z, μ, logvar = vaenetwork.encoder(x)
+        x̂ = vaenetwork.decoder(z)
+        return (binarycrossentropy(x̂, x), β * klfromgaussian(μ, logvar), λ * l2reg(params(vaenetwork)))
     end
 end

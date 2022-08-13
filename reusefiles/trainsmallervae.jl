@@ -4,8 +4,6 @@ using MLDatasets
 include("vaemodel.jl")
 include("trainloops.jl")
 
-gaussinit(out, in) = randn(Float32, out, in) / sqrt(out)
-
 #function trainmodel()
 
 # model = FullVae(
@@ -22,28 +20,49 @@ gaussinit(out, in) = randn(Float32, out, in) / sqrt(out)
 #         Dense(512 => 784, bias=false, sigmoid, init=gaussinit)
 #     )
 # )
+# hidden = 512
+# secondhidden = convert(Integer, hidden / 2)
+# zlayer = 16
+
+# model = FullVae(
+#     VaeEncoder(Chain(
+#             Dense(28^2 => hidden, relu),
+#             Dense(hidden => secondhidden, relu)
+#         ),
+#         Dense(secondhidden => zlayer),
+#         Dense(secondhidden => zlayer)
+#     ),
+#     Chain(
+#         Dense(zlayer => secondhidden, bias=false, relu),
+#         Dense(secondhidden => hidden, bias=false, relu),
+#         Dense(hidden => 28^2, bias=false, sigmoid)
+#     )
+# )
+
+hidden = 512
+secondhidden = 256
+zlayer = 16
 
 model = FullVae(
-    VaeEncoder(Chain(
-            Dense(784 => 128, relu, init=gaussinit),
-            Dense(128 => 32, relu, init=gaussinit)
+    VaeEncoder(
+        Chain(Dense(28^2 => hidden, relu),
+            Dense(hidden => secondhidden)
         ),
-        Dense(32 => 2, init=gaussinit),
-        Dense(32 => 2, init=gaussinit)
+        Dense(secondhidden => zlayer),
+        Dense(secondhidden => zlayer)
     ),
     Chain(
-        Dense(2 => 32, bias=false, relu, init=gaussinit),
-        Dense(32 => 128, bias=false, relu, init=gaussinit),
-        Dense(128 => 784, bias=false, sigmoid, init=gaussinit)
+        Dense(zlayer => secondhidden, bias=false, relu),
+        Dense(secondhidden => hidden, bias=false, relu),
+        Dense(hidden => 28^2, bias=false, sigmoid)
     )
 )
 
-loss = vaeloss(model, 1.0f0, 0.01f0)
+
+loss = vaeloss(model, 1.0f0, 0.001f0)
 traindata = reshape(MNIST(Float32, :train).features[:, :, 1:end], 28^2, :)
-testdata = reshape(MNIST(Float32, :test).features[:, :, 1:64], 28^2, :)
+testdata = reshape(MNIST(Float32, :test).features[:, :, 1:end], 28^2, :)
 trainloader = DataLoader(traindata, batchsize=32)
 validateloader = DataLoader(testdata, batchsize=32)
-trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 4, "./reusefiles/models/", "./reusefiles/logs/", label="small", validateinterval=1, saveinterval=1)
+trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 4, "./reusefiles/models/", "./reusefiles/logs/", label="tinyv3", loginterval=20, saveinterval=1000)
 #end
-
-trainedModel = trainmodel()

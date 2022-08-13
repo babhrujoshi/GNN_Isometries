@@ -1,6 +1,9 @@
 using BSON: @load
+using Flux
 
-@load "./reusefiles/savedmodels/vae100epoch" model
+include("vaemodel.jl")
+
+@load "./reusefiles/models/smallintrain6" model
 
 using Plots
 using Images
