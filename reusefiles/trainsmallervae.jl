@@ -64,5 +64,5 @@ traindata = reshape(MNIST(Float32, :train).features[:, :, 1:end], 28^2, :)
 testdata = reshape(MNIST(Float32, :test).features[:, :, 1:end], 28^2, :)
 trainloader = DataLoader(traindata, batchsize=32)
 validateloader = DataLoader(testdata, batchsize=32)
-trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 4, "./reusefiles/models/", "./reusefiles/logs/", label="tinyv3", loginterval=20, saveinterval=1000)
+trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 20, "./reusefiles/models/", "./reusefiles/logs/", label="tinyv3", loginterval=20, saveinterval=1000)
 #end
