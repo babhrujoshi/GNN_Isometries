@@ -13,7 +13,7 @@ function (m::VaeEncoder)(x::AbstractArray)
     intermediate = m.encoderbody(x)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
-    randcoeffs = randn(size(logvar)...)
+    randcoeffs = randn(Float32, size(logvar)...)
     z = μ .+ randcoeffs .* exp.(0.5 .* logvar)
     return z, μ, logvar
 end
