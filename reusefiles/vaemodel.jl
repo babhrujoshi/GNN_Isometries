@@ -13,8 +13,8 @@ function (m::VaeEncoder)(x::AbstractArray)
     intermediate = m.encoderbody(x)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
-    randcoeffs = randn(Float32, size(logvar)...)
-    z = μ .+ randcoeffs .* exp.(0.5 .* logvar)
+    randcoeffs = randn(Float32, size(logvar))
+    z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
     return z, μ, logvar
 end
 
@@ -51,8 +51,6 @@ end
 function l2reg(pars)
     sum(x -> sum(abs2, x), pars)
 end
-
-Flux.Losses.mse
 
 #loss function
 function vaeloss(vaenetwork, β, λ)

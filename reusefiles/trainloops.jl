@@ -79,40 +79,30 @@ function trainvalidatelognsave(lossfn, model, pars::Flux.Params, traindata, vali
     end
 
     #numbatches = length(data)
-    @progress for epochnum in 1:numepochs
+    for epochnum in 1:numepochs, (step, x_batch) in enumerate(traindata)
 
-        #loss = trainandgetloss!(lossfn, pars, traindata, opt)
-        #train!(lossfn, pars, traindata, opt,
-        #    cb=[Flux.throttle(logvalidation, logtimeinterval),
-        #        Flux.throttle(savemodel, savetimeinterval)
-        #    ])
-        for (step, x_batch) in enumerate(traindata) # pullback function returns the result (loss) and a pullback operator (back)
-            loss, back = pullback(pars) do
-                lossfn(x_batch)
-            end
-            # Feed the pullback 1 to obtain the gradients and update then model parameters
-            gradients = back(1.0f0)
-            Flux.Optimise.update!(opt, pars, gradients)
-
-            if step % loginterval == 0
-                with_logger(tblogger) do
-                    @info "loss" loss
-                end
-            end
-
-            if step % saveinterval == 0
-                savemodel()
-                with_logger(tblogger) do
-                    @info "validation" evaluateloss(lossfn, validatedata)
-                end
-                @save string(savedir, label, "_epoch_", epochnum) model opt
-            end
-
-
+        loss, back = pullback(pars) do
+            lossfn(x_batch)
         end
+        gradients = back(1.0f0)
+        Flux.Optimise.update!(opt, pars, gradients)
+
+        if step % loginterval == 0
+            with_logger(tblogger) do
+                @info "loss" loss
+            end
+        end
+
+        if step % saveinterval == 0
+            savemodel()
+            with_logger(tblogger) do
+                @info "validation" evaluateloss(lossfn, validatedata)
+            end
+            @save string(savedir, label, "_epoch_", epochnum) model opt
+        end
+
 
     end
     savemodel()
     @info "training complete!"
 end
-

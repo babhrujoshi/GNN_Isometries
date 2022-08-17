@@ -40,12 +40,13 @@ include("trainloops.jl")
 # )
 
 hidden = 512
-secondhidden = 256
+secondhidden = 512
 zlayer = 16
 
 model = FullVae(
     VaeEncoder(
-        Chain(Dense(28^2 => hidden, relu),
+        Chain(
+            Dense(28^2 => hidden, relu),
             Dense(hidden => secondhidden)
         ),
         Dense(secondhidden => zlayer),
@@ -59,10 +60,10 @@ model = FullVae(
 )
 
 
-loss = vaeloss(model, 1.0f0, 0.001f0)
-traindata = reshape(MNIST(Float32, :train).features[:, :, 1:end], 28^2, :)
-testdata = reshape(MNIST(Float32, :test).features[:, :, 1:end], 28^2, :)
-trainloader = DataLoader(traindata, batchsize=32)
-validateloader = DataLoader(testdata, batchsize=32)
-trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 20, "./reusefiles/models/", "./reusefiles/logs/", label="tinyv3", loginterval=20, saveinterval=1000)
+loss = vaeloss(model, 1.0f0, 0.005f0)
+traindata = reshape(MNIST(Float32, :train).features[:, :, 1:128], 28^2, :)
+testdata = reshape(MNIST(Float32, :test).features[:, :, 1:128], 28^2, :)
+trainloader = DataLoader(traindata, batchsize=64)
+validateloader = DataLoader(testdata, batchsize=64)
+trainvalidatelognsave(loss, model, params(model), trainloader, validateloader, Flux.Optimise.ADAM(0.001), 2, "./reusefiles/models/", "./reusefiles/logs/", label="tinyv5", loginterval=5, saveinterval=50)
 #end
