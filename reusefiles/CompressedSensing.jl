@@ -15,7 +15,7 @@ using Logging
 
     loss takes z as an argument.
 """
-function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_toggle=1e4, max_iter=500_000, tblogdir=nothing)
+function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_toggle=1e4, max_iter=500_000, tblogdir=nothing)
     tol2 = tolerance^2
     logger = !isnothing(tblogdir) ? TBLogger(tblogdir) : current_logger()
 
@@ -36,7 +36,7 @@ function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=1e-5, out_t
                 @info "====> In Gradient:" iter grad_size = sqrt(succ_error) lossval = sqrt(loss(z))
             end
             if succ_error < tol2
-                @info sqrt(succ_error)
+                @info "final stats" error = sqrt(succ_error) iter
                 break
             end
             iter += 1

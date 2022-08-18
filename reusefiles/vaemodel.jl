@@ -1,5 +1,5 @@
 using Flux
-using Flux: binarycrossentropy, pullback
+using Flux: logitbinarycrossentropy, pullback
 using BSON: @save
 using Statistics
 using ProgressLogging
@@ -55,7 +55,7 @@ function makeVAE(hidden, secondhidden, zlayer)
         Chain(
             Dense(zlayer => secondhidden, bias=false, relu),
             Dense(secondhidden => hidden, bias=false, relu),
-            Dense(hidden => 28^2, bias=false, sigmoid)
+            Dense(hidden => 28^2, bias=false)
         )
     )
 end
@@ -82,16 +82,15 @@ function trainVAE(β, λ, model, pars::Flux.Params, traindata, opt::Flux.Optimis
 
     #numbatches = length(data)
     @progress for epochnum in 1:numepochs
-        for (step, x::AbstractArray{Float32}) in enumerate(traindata)
+        for (step, x) in enumerate(traindata)
 
             loss, back = pullback(pars) do
-                len = length(x)
                 intermediate = model.encoder.encoderbody(x)
                 μ = model.encoder.splitedμ(intermediate)
                 logvar = model.encoder.splitedlogvar(intermediate)
                 z = μ .+ randn(Float32, size(logvar)) .* exp.(0.5f0 .* logvar)
                 x̂ = model.decoder(z)
-                binarycrossentropy(x̂, x; agg=sum) / len + β * klfromgaussian(μ, logvar) / len + λ * l2reg(pars)
+                logitbinarycrossentropy(x̂, x; agg=sum) + β * klfromgaussian(μ, logvar) + λ * l2reg(pars)
             end
             gradients = back(1.0f0)
             Flux.Optimise.update!(opt, pars, gradients)
