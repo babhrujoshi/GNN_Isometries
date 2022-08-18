@@ -15,14 +15,15 @@ using Logging
 
     loss takes z as an argument.
 """
-function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_toggle=1e4, max_iter=500_000, tblogdir=nothing)
+function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_toggle=1e2, max_iter=15_000, tblogdir=nothing)
     tol2 = tolerance^2
-    logger = !isnothing(tblogdir) ? TBLogger(tblogdir) : current_logger()
+    usingtb = !isnothing(tblogdir)
+    logger = usingtb ? TBLogger(tblogdir) : current_logger()
 
     ps = params(z)
     iter = 1
     arglessloss() = loss(z)
-
+    succerror = 0.0f0
     with_logger(logger) do
         while true
             if iter > max_iter
@@ -31,17 +32,18 @@ function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_t
             end
             grads = gradient(arglessloss, ps) #loss cannot have any arguments
             update!(opt, ps, grads)
-            succ_error = sum(abs2, grads[z])
-            if out_toggle != 0 && iter % out_toggle == 0
-                @info "====> In Gradient:" iter grad_size = sqrt(succ_error) lossval = sqrt(loss(z))
+            succerror = sum(abs2, grads[z])
+            if usingtb && out_toggle != 0 && iter % out_toggle == 0
+                @info "recovery optimization step" iter grad_size = sqrt(succerror) lossval = sqrt(loss(z))
             end
-            if succ_error < tol2
-                @info "final stats" error = sqrt(succ_error) iter
+            if succerror < tol2
+
                 break
             end
             iter += 1
         end
     end
+    @info "final stats" error = sqrt(succerror) iter
     return z
 end
 
@@ -49,6 +51,7 @@ end
 ##
 
 function recoversignal(measurements, A, model, code_dim; kwargs...)
+    @debug "Starting Image Recovery"
     function loss(codeguess)
         return sum(abs2, A * model(codeguess) - measurements)
     end
@@ -81,4 +84,3 @@ function singlerecoveryfourierexperiment(x₀, model, k, n, aimed_m; kwargs...)
     recoveredsignal = recoversignal(measurements, A, model, k; kwargs...)
     return recoveredsignal, norm(recoveredsignal - x₀)
 end
-
