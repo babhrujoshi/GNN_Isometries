@@ -4,6 +4,7 @@ using Distributions
 using LinearAlgebra
 using TensorBoardLogger
 using Logging
+using Base.Threads
 ##
 
 
@@ -43,7 +44,7 @@ function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_t
             iter += 1
         end
     end
-    @info "final stats" error = sqrt(succerror) iter
+    @info "final stats" final_gradient_size = sqrt(succerror) iter thread = threadid()
     return z
 end
 

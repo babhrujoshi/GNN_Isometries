@@ -14,6 +14,7 @@ Flux.@functor VaeEncoder
 
 
 function (m::VaeEncoder)(x::AbstractArray)
+    intermediate = m.encoderbody(x)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
     randcoeffs = randn(Float32, size(logvar))
@@ -32,6 +33,7 @@ Flux.@functor FullVae
 
 #averaged forward pass
 function (m::FullVae)(x::AbstractArray, n::Integer)
+    #preformance gain available by getting mu and logvar once, and sampling many times
     acc = zero(x)
     for i in 1:n
         acc .+= m.decoder(m.encoder(x)[1])
