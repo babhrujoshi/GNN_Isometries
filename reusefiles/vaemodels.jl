@@ -17,9 +17,7 @@ function (m::VaeEncoder)(x::AbstractArray)
     intermediate = m.encoderbody(x)
     μ = m.splitedμ(intermediate)
     logvar = m.splitedlogvar(intermediate)
-    randcoeffs = randn(Float32, size(logvar))
-    z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
-    return z, μ, logvar
+    return μ, logvar
 end
 
 struct FullVae{T}
@@ -29,13 +27,23 @@ end
 Flux.@functor FullVae
 
 #forward pass
-(m::FullVae)(x::AbstractArray) = m.decoder(m.encoder(x)[1])
+function (m::FullVae)(x::AbstractArray)
+    μ, logvar =  m.encoder(x)
+    randcoeffs = randn(Float32, size(logvar))
+    z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
+    m.decoder(z)
+end
 
 #averaged forward pass
 function (m::FullVae)(x::AbstractArray, n::Integer)
     #preformance gain available by getting mu and logvar once, and sampling many times
     acc = zero(x)
+    μ, logvar =  m.encoder(x)
+
     for i in 1:n
+        randcoeffs = randn(Float32, size(logvar))
+        z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
+        m.decoder(z)
         acc .+= m.decoder(m.encoder(x)[1])
     end
     acc ./ n

@@ -1,4 +1,4 @@
-
+using Plots
 
 function plot_scatter_stats(results:: AbstractArray{Tuple{Number, Number}})
     incoherences = collect(Set(results[1]))
