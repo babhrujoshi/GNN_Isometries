@@ -44,7 +44,7 @@ function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_t
             iter += 1
         end
     end
-    @info "final stats" final_gradient_size = sqrt(succerror) iter thread = threadid()
+    @debug "final stats" final_gradient_size = sqrt(succerror) iter thread = threadid()
     return z
 end
 
@@ -62,12 +62,7 @@ function recoversignal(measurements, A, model, code_dim; kwargs...)
 end
 
 
-function recoveryerror(x₀, model, A, k; kwargs...)
-    y = A * x₀
-    norm(recoversignal(y, A, model, k; kwargs...) - x₀)
-end
-
-function samplefourierwithoutreplacement(aimed_m, n)
+function sampleFourierwithoutreplacement(aimed_m, n)
     F = dct(diagm(ones(n)), 2)
     sampling = rand(Bernoulli(aimed_m / n), n)
     true_m = sum(sampling)
@@ -75,12 +70,20 @@ function samplefourierwithoutreplacement(aimed_m, n)
     #return get_true_m ? (true_m, normalized_F) : normalized_F # normalize it
 end
 
+function sampleFourierwithoutreplacement(aimed_m, n, returntruem)
+    F = dct(diagm(ones(n)), 2)
+    sampling = rand(Bernoulli(aimed_m / n), n)
+    true_m = sum(sampling)
+    normalized_F = F[sampling, :] * sqrt(n / true_m)
+    (true_m, normalized_F)
+end
+
 function fullfourier(dim)
     dct(diagm(ones(dim)), 2)
 end
 
 function singlerecoveryfourierexperiment(x₀, model, k, n, aimed_m; kwargs...)
-    A = samplefourierwithoutreplacement(aimed_m, n)
+    A = sampleFourierwithoutreplacement(aimed_m, n)
     measurements = A * x₀
     recoveredsignal = recoversignal(measurements, A, model, k; kwargs...)
     return recoveredsignal, norm(recoveredsignal - x₀)
