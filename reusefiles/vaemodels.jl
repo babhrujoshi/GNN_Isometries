@@ -28,7 +28,7 @@ Flux.@functor FullVae
 
 #forward pass
 function (m::FullVae)(x::AbstractArray)
-    μ, logvar =  m.encoder(x)
+    μ, logvar = m.encoder(x)
     randcoeffs = randn(Float32, size(logvar))
     z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
     m.decoder(z)
@@ -38,7 +38,7 @@ end
 function (m::FullVae)(x::AbstractArray, n::Integer)
     #preformance gain available by getting mu and logvar once, and sampling many times
     acc = zero(x)
-    μ, logvar =  m.encoder(x)
+    μ, logvar = m.encoder(x)
 
     for i in 1:n
         randcoeffs = randn(Float32, size(logvar))
@@ -132,13 +132,63 @@ function trainstdVaeonMNIST()
 end
 
 
-function trainincoherentVae(β, λ, α, F, model, pars::Flux.Params, traindata, opt::Flux.Optimise.AbstractOptimiser, numepochs, savedir, tblogdir; loginterval=10, label="")
+
+
+function VAEloss_unitarycoherence(x, F, model::FullVae, pars, lastlayer, β, λ, α)
+    function klfromgaussian(μ, logvar)
+        0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))
+    end
+
+    function l2reg(pars)
+        sum(x -> sum(abs2, x), pars)
+    end
+    intermediate = model.encoder.encoderbody(x)
+    μ = model.encoder.splitedμ(intermediate)
+    logvar = model.encoder.splitedlogvar(intermediate)
+    z = μ .+ randn(Float32, size(logvar)) .* exp.(0.5f0 .* logvar)
+    x̂ = model.decoder(z)
+
+    lastlayercoherence(lastlayer) = sqrt(maximum(sum(abs2, F * lastlayer, dims=2))) + sum(abs2, lastlayer' * lastlayer - I)
+
+    logitbinarycrossentropy(x̂, x; agg=sum) + β * klfromgaussian(μ, logvar) + α * lastlayercoherence(lastlayer) + λ * l2reg(pars)
+end
+
+function VAEloss_boundedcoherence(x, F, model::FullVae, pars, lastlayer, β, λ, α)
+
+    intermediate = model.encoder.encoderbody(x)
+    μ = model.encoder.splitedμ(intermediate)
+    logvar = model.encoder.splitedlogvar(intermediate)
+    z = μ .+ randn(Float32, size(logvar)) .* exp.(0.5f0 .* logvar)
+    x̂ = model.decoder(z)
+
+    klgaussian = 0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))
+    l2reg = sum(x -> sum(abs2, x), pars)
+    boundedcoherence = log(sum(exp, (sum(abs2, F * lastlayer, dims=2)))) #taking the softmax
+
+    logitbinarycrossentropy(x̂, x; agg=sum) + β * klgaussian + α * boundedcoherence + λ * l2reg
+end
+
+function VAEloss_boundedcoherence(x, F, model::FullVae, pars, lastlayer, β, λ, α, tblogger)
+
+    intermediate = model.encoder.encoderbody(x)
+    μ = model.encoder.splitedμ(intermediate)
+    logvar = model.encoder.splitedlogvar(intermediate)
+    z = μ .+ randn(Float32, size(logvar)) .* exp.(0.5f0 .* logvar)
+    x̂ = model.decoder(z)
+
+    klgaussian = 0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))
+    l2reg = sum(x -> sum(abs2, x), pars)
+    boundedcoherence = log(sum(exp, (sum(abs2, F * lastlayer, dims=2)))) #taking the softmax
+
+    with_logger(tblogger) do
+        @info "loss terms" logitbinarycrossentropy(x̂, x; agg=sum) β * klgaussian α * boundedcoherence λ * l2reg
+    end
+end
+
+
+function trainincoherentVae(vaelossfn, β, λ, α, F, model, pars::Flux.Params, traindata, opt::Flux.Optimise.AbstractOptimiser, numepochs, savedir, tblogdir; loginterval=10, label="", logginglossterms=false)
     # The training loop for the model
     tblogger = TBLogger(tblogdir)
-
-    function savemodel()
-
-    end
 
     function klfromgaussian(μ, logvar)
         0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))
@@ -152,34 +202,34 @@ function trainincoherentVae(β, λ, α, F, model, pars::Flux.Params, traindata, 
     #lastlayercoherence() = maximum(sqrt.(sum((F * lastlayer) .* (F * lastlayer), dims=2))) + norm(lastlayer' * lastlayer - I(500), 2)^2
     lastlayercoherence(lastlayer) = sqrt(maximum(sum(abs2, F * lastlayer, dims=2))) + sum(abs2, lastlayer' * lastlayer - I)
 
+
     #numbatches = length(data)
     @progress for epochnum in 1:numepochs
         for (step, x) in enumerate(traindata)
 
             loss, back = pullback(pars) do
-                intermediate = model.encoder.encoderbody(x)
-                μ = model.encoder.splitedμ(intermediate)
-                logvar = model.encoder.splitedlogvar(intermediate)
-                z = μ .+ randn(Float32, size(logvar)) .* exp.(0.5f0 .* logvar)
-                x̂ = model.decoder(z)
-                logitbinarycrossentropy(x̂, x; agg=sum) + β * klfromgaussian(μ, logvar) + α * lastlayercoherence(lastlayer) + λ * l2reg(pars)
+                vaelossfn(x, F, model, pars, lastlayer, β, λ, α)
             end
             gradients = back(1.0f0)
             Flux.Optimise.update!(opt, pars, gradients)
 
             if step % loginterval == 0
                 with_logger(tblogger) do
-                    @info "loss" loss
+
+                    if logginglossterms
+                        vaelossfn(x, F, model, pars, lastlayer, β, λ, α, tblogger)
+                    end
+                    @info "loss" epochnum loss
                 end
             end
         end
-        @save string(savedir, label, "epoch", epochnum) model opt
+        @save string(savedir, label, "epoch", epochnum) model opt epochnum β λ α label
     end
 
     @info "training complete!"
 end
 
-function train_incoherentVAE_onMNIST(; label="")
+function train_incoherentVAE_onMNIST(; vaelossfn=VAEloss_boundedcoherence, numepochs=20, β=1.0f0, λ=1.0f-2, α=1.0f4, kwargs...)
     model = makeVAE(512, 512, 16)
     batchsize = 64
 
@@ -187,5 +237,10 @@ function train_incoherentVAE_onMNIST(; label="")
     trainloader = DataLoader(traindata, batchsize=batchsize)
 
     F = dct(diagm(ones(28^2)), 2)
-    trainincoherentVae(1.0f0, 0.01f0, 1000.0f0, F, model, params(model), trainloader, Flux.Optimise.ADAM(), 20, "./reusefiles/models/", "./reusefiles/logs/", label=label, loginterval=100)
+
+    trainincoherentVae(vaelossfn, β, λ, α, F, model, params(model), trainloader, Flux.Optimise.ADAM(), numepochs, "./reusefiles/models/", "./reusefiles/logs/"; kwargs...)
 end
+
+
+
+

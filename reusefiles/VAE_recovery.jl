@@ -1,10 +1,9 @@
-using Plots, Images
-#using Plots.PlotMeasures
-using Base.Threads
-using Printf
-using Plots
 using BSON: @save
+using Base.Threads
+using Images
 using LsqFit
+using Plots
+using Printf
 
 include("vaemodels.jl")
 include("compressedsensing.jl")
@@ -139,12 +138,12 @@ function recoverythreshold_fromrandomimage(VAE, VAEdecoder, aimedmeasurementnumb
     #scatter!([threshold], [curve(threshold, coef(fit))], xerror=err) #scale by derivative
 
     #    catch
-    #        returnplot = scatter(true_ms, log.(recoveryerrors), title="Recovery Errors", yaxis=:log, xaxis=:log)
+    #        returnplot = scatter(true_ms, log.(recoveryerrors), title="Recovery Errors", yaxis=:log, xaxis=:log) 
     #        @warn "could not fit the data"
     #    end
 
     if !isnothing(savefile)
-        @save savefile true_ms recoveryerrors threshold metadata = Dict(:truesignal => truesignal, :inrange => inrange, :presigmoid => presigmoid, :aimedmeasurementnumbers => aimedmeasurementnumbers, :VAE => VAE)
+        @save savefile true_ms recoveryerrors threshold truesignal inrange presigmoid aimedmeasurementnumbers VAE
     end
     returnplot
 end
@@ -152,4 +151,45 @@ end
 #used to choose measurement number in a smart way
 logrange(low_meas, high_meas, num_meas) = convert.(Int, floor.(exp.(LinRange(log(low_meas), log(high_meas), num_meas))))
 #collect(0:10:220)
-#@time scatter_MNISTimage_recoveryerrors(model, model.decoder, collect(0:10:40), 16, 28^2)
+#@time recoverythreshold_fromrandomimage(model, model.decoder, collect(0:10:40), 16, 28^2)
+
+"models is an array of (name, model, decoder)"
+function plot_models_recovery_errors(models::AbstractArray, aimedmeasurementnumbers, k, n;
+    presigmoid=true, inrange=true, typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
+
+    if !presigmoid #preprocess the models
+        models = [(sigmoid ∘ model[1], sigmoid ∘ model[2]) for model in models]
+    end
+
+    dataset = MNIST(Float32, typeofdata).features
+
+
+
+    returnplot = plot()
+    returndata = Dict()
+
+    for model in models
+        recoveryerrors = Vector{Float32}(undef, length(aimedmeasurementnumbers))
+        true_ms = Vector{Float32}(undef, length(aimedmeasurementnumbers))
+
+        @threads for (i, aimedm) in collect(enumerate(aimedmeasurementnumbers))
+            img = dataset[:, :, rand(1:size(dataset)[3])]
+            truesignal, _ = _preprocess_MNIST_truesignal(img, model[2], presigmoid, inrange)
+
+            true_m, F = sampleFourierwithoutreplacement(aimedm, n, true)
+            measurements = F * truesignal
+            recovery = recoversignal(measurements, F, model[3], k, tolerance=5e-4; kwargs...)
+
+            true_ms[i] = true_m
+            recoveryerrors[i] = norm(recovery .- truesignal)
+        end
+
+        returndata[model[1]] = (true_ms, recoveryerrors)
+        returnplot = scatter!(true_ms, recoveryerrors, xaxis=:log, yaxis=:log, label=model[1])
+    end
+
+    if !isnothing(savefile)
+        @save savefile returndata inrange presigmoid aimedmeasurementnumbers
+    end
+    returnplot
+end
