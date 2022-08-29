@@ -1,4 +1,4 @@
-using Flux: params, gradient, update!
+using Flux: params, gradient, update!, ADAM
 using FFTW
 using Distributions
 using LinearAlgebra
@@ -6,6 +6,7 @@ using TensorBoardLogger
 using Logging
 using Base.Threads
 ##
+
 
 
 
@@ -48,7 +49,45 @@ function optimise!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_t
     return z
 end
 
+"""
+    optimise(init_z, loss, opt, tolerance, [out_toggle = 0,][max_iter = 1_000_000])
 
+    Optimization that stops when the gradient is small enough
+
+    loss takes z, p as an argument where z is the code and 
+"""
+# function optimiseforward!(loss, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_toggle=1e2, max_iter=15_000, tblogdir=nothing) tol2 = tolerance^2
+#     usingtb = !isnothing(tblogdir)
+#     logger = usingtb ? TBLogger(tblogdir) : current_logger()
+
+#     f = OptimizationFunction(loss, GalacticOptim.AutoForwardDiff()) 
+
+#     ps = params(z)
+#     iter = 1
+#     arglessloss() = loss(z)
+#     succerror = 0.0f0
+#     with_logger(logger) do
+#         while true
+#             if iter > max_iter
+#                 @warn "Max num. iterations reached"
+#                 return missing
+#             end
+#             grads = gradient(arglessloss, ps) #loss cannot have any arguments
+#             update!(opt, ps, grads)
+#             succerror = sum(abs2, grads[z])
+#             if usingtb && out_toggle != 0 && iter % out_toggle == 0
+#                 @info "recovery optimization step" iter grad_size = sqrt(succerror) lossval = sqrt(loss(z))
+#             end
+#             if succerror < tol2
+
+#                 break
+#             end
+#             iter += 1
+#         end
+#     end
+#     @debug "final stats" final_gradient_size = sqrt(succerror) iter thread = threadid()
+#     return z
+# end
 ##
 
 function recoversignal(measurements, A, model, code_dim; kwargs...)
