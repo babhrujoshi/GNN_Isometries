@@ -38,6 +38,59 @@ Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
+function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder, aimedmeasurementnumbers, numbers, k, n; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+
+    @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
+    if !presigmoid #preprocess the models
+        VAE = sigmoid ∘ VAE
+        VAEdecoder = sigmoid ∘ VAEdecoder
+    end
+
+    MNISTtestdata = MNIST(Float32, typeofdata)
+    plots = Matrix{Plots.Plot}(undef, length(numbers), length(aimedmeasurementnumbers) + 1)
+
+    @threads for (i, number) in collect(enumerate(numbers))
+
+        numberset = MNISTtestdata.features[:, :, MNISTtestdata.targets.==number]
+        img = numberset[:, :, rand(1:size(numberset)[end])]
+
+        truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
+
+        plots[i, 1] = i == 1 ? plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'), title="signal") :
+                      plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
+
+        @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
+            F = sampleFourierwithoutreplacement(aimedm, n)
+            measurements = F * truesignal
+            recovery = recoversignal(measurements, F, VAEdecoder, k, tolerance=5e-4; kwargs...)
+            recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
+            plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
+            title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
+            plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
+
+        end
+    end
+    scale = plotwidth / length(aimedmeasurementnumbers)
+    title_plot_margin = 100
+    returnplot = plot(permutedims(plots)...,
+        layout=(length(numbers), length(aimedmeasurementnumbers) + 1),
+        size=((length(aimedmeasurementnumbers) + 1) * scale, length(numbers) * scale + title_plot_margin),
+        background_color=:grey93,
+        axis=([], false),
+        titlefontsize=12)
+
+    #if !isnothing(savefile)
+    #this needs data that are not plots
+    #@save savefile plots metadata = Dict(:inrange => inrange, :presigmoid => presigmoid, :aimedmeasurementnumbers => aimedmeasurementnumbers, :returnplot => returnplot, :VAE => VAE)
+    #end
+    returnplot
+end
+
+"""
+Plot a matrix of recovery images by number for different measurement numbers
+The VAE and VAE decoder should never have a final activation
+VAE can be given as nothing if "inrange=false" is given.
+"""
 function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, VAEdecoder, aimedmeasurementnumbers, numbers, k, n; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
 
     @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"

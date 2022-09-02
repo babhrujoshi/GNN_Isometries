@@ -60,5 +60,8 @@ resultsdata = compare_models_from_thresholds(models, modellabels, meas, 2, 16, 2
 
 #Other experiment: find threshold for many images
 
+include("reusefiles/relaxedrecovery.jl")
 
+layerdims = getlayerdims(model.decoder)
 
+plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(model, model.decoder, [512], [5], layerdims)

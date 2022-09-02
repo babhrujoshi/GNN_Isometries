@@ -27,7 +27,7 @@ function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, ou
                 @warn "Max num. iterations reached"
                 return missing
             end
-            grads = gradient(()-> loss(z, p), ps) #loss cannot have any arguments
+            grads = gradient(() -> loss(z, p), ps) #loss cannot have any arguments
             update!(opt, ps, grads)
             succerror = sum(abs2, grads[z])
             if usingtb && out_toggle != 0 && iter % out_toggle == 0
@@ -56,7 +56,7 @@ end
 
 
 function sampleFourierwithoutreplacement(aimed_m, n)
-    F = dct(diagm(ones(n)), 2)
+    F = Float32.(dct(diagm(ones(n)), 2))
     sampling = rand(Bernoulli(aimed_m / n), n)
     true_m = sum(sampling)
     F[sampling, :] * sqrt(n / true_m)
@@ -64,7 +64,7 @@ function sampleFourierwithoutreplacement(aimed_m, n)
 end
 
 function sampleFourierwithoutreplacement(aimed_m, n, returntruem)
-    F = dct(diagm(ones(n)), 2)
+    F = Float32.(dct(diagm(ones(n)), 2))
     sampling = rand(Bernoulli(aimed_m / n), n)
     true_m = sum(sampling)
     normalized_F = F[sampling, :] * sqrt(n / true_m)
