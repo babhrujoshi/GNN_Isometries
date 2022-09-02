@@ -127,7 +127,7 @@ function recoverythreshold_fromrandomimage(VAE, VAEdecoder, aimedmeasurementnumb
         recovery = recoversignal(measurements, F, VAEdecoder, k, tolerance=5e-4; kwargs...)
 
         true_ms[i] = true_m
-        recoveryerrors[i] = norm(recovery - true_signal)
+        recoveryerrors[i] = norm(recovery - truesignal)
     end
 
     threshold, fit, returnplot = threshold_through_fit(true_ms, recoveryerrors)
