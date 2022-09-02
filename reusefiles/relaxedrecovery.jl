@@ -5,6 +5,8 @@ include("compressedsensing.jl")
 """
 Recover with features at all layers of the network to convexify the problem; this may allow the use of other optimizers
 This Function yields optimizations out of range. To get closer to the range, increase link strength
+
+returns (code, signal)
 """
 function relaxed_recover(measurements, A, generativenet::Flux.Chain, encodingdims::AbstractVector{Integer};linkstrength = 0.1f0, kwargs...)
     function relaxedloss(generativechain::Flux.Chain, linkstrength::AbstractFloat, truemeasurements, fullcode::AbstractVector)
@@ -23,5 +25,12 @@ function relaxed_recover(measurements, A, generativenet::Flux.Chain, encodingdim
     z0 = [randn(dims) for dims in encodingdims]
 
     recoveredencodings = optimise!(optimloss, p, z0)
-    generativenet(recoveredencodings[1])
+    
+    (recoveredencodings[1], generativenet(recoveredencodings[1]))
+end
+
+function accelerated_recovery(measurements, A, model, encoding_dims; kwargs...)
+    opt = ADAM()
+    code , _ = relaxed_recover(measurements,A, model, encoding_dims, opt = opt)
+    recoversignal(measurements, A, model, encoding_dims[1], init_code = code, opt = opt)
 end

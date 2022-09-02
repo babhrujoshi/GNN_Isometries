@@ -44,13 +44,14 @@ function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, ou
     return z
 end
 
-function recoversignal(measurements, A, model, code_dim; kwargs...)
+function recoversignal(measurements, A, model, code_dim; init_code=randn(code_dim), kwargs...)
     @debug "Starting Image Recovery"
     function loss(x, p::Tuple)
         return sum(abs2, A * p[1](x) - p[2])
     end
     p = (model, measurements)
-    model(optimise!(loss, p, randn(code_dim); kwargs...))
+
+    model(optimise!(loss, p, init_code; kwargs...))
 end
 
 
