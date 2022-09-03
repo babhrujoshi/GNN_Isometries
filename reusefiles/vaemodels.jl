@@ -49,6 +49,7 @@ function (m::FullVae)(x::AbstractArray, n::Integer)
     acc ./ n
 end
 
+
 function makeVAE(hidden, secondhidden, zlayer)
     FullVae(
         VaeEncoder(

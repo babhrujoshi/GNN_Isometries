@@ -36,8 +36,6 @@ function accelerated_recovery(measurements, A, model, encoding_dims; kwargs...)
 end
 
 
-getlayerdims(ChainDecoder::Flux.Chain{<:Tuple{Vararg{Dense}}}) =
-    vcat([size(layer.weight)[2] for layer in ChainDecoder.layers], [size(ChainDecoder.layers[end].weight)[1]])
 
 include("VAE_recovery.jl")
 """

@@ -33,17 +33,20 @@ function _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
     return truesignal, plottedtruesignal
 end
 
+getlayerdims(ChainDecoder::Flux.Chain{<:Tuple{Vararg{Dense}}}) =
+    vcat([size(layer.weight)[2] for layer in ChainDecoder.layers], [size(ChainDecoder.layers[end].weight)[1]])
+
 """
-Plot a matrix of recovery images by number for different measurement numbers
-The VAE and VAE decoder should never have a final activation
-VAE can be given as nothing if "inrange=false" is given.
+Same as below but uses different recovery algorithm; for testing purposes
 """
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder, aimedmeasurementnumbers, numbers, k, n; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE::FullVae, aimedmeasurementnumbers, numbers; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
 
     @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
+
+    decoder = VAE.decoder
     if !presigmoid #preprocess the models
         VAE = sigmoid ∘ VAE
-        VAEdecoder = sigmoid ∘ VAEdecoder
+        decoder = sigmoid ∘ decoder
     end
 
     MNISTtestdata = MNIST(Float32, typeofdata)
@@ -62,7 +65,7 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder,
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             F = sampleFourierwithoutreplacement(aimedm, n)
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, VAEdecoder, k, tolerance=5e-4; kwargs...)
+            recovery = recoversignal(measurements, F, decoder, k, tolerance=5e-4; kwargs...)
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
             title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
@@ -86,17 +89,18 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder,
     returnplot
 end
 
+
 """
 Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, VAEdecoder, aimedmeasurementnumbers, numbers, k, n; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurementnumbers, numbers; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
 
-    @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
+    decoder = VAE.decoder
     if !presigmoid #preprocess the models
         VAE = sigmoid ∘ VAE
-        VAEdecoder = sigmoid ∘ VAEdecoder
+        decoder = sigmoid ∘ decoder
     end
 
     MNISTtestdata = MNIST(Float32, typeofdata)
@@ -113,9 +117,9 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, VAEdecoder, aime
                       plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
 
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-            F = sampleFourierwithoutreplacement(aimedm, n)
+            F = sampleFourierwithoutreplacement(aimedm, length(truesignal))
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, VAEdecoder, k, tolerance=5e-4; kwargs...)
+            recovery = recoversignal(measurements, F, decoder, tolerance=5e-4; kwargs...)
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
             title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
@@ -123,6 +127,7 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, VAEdecoder, aime
 
         end
     end
+
     scale = plotwidth / length(aimedmeasurementnumbers)
     title_plot_margin = 100
     returnplot = plot(permutedims(plots)...,
@@ -132,10 +137,6 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, VAEdecoder, aime
         axis=([], false),
         titlefontsize=12)
 
-    #if !isnothing(savefile)
-    #this needs data that are not plots
-    #@save savefile plots metadata = Dict(:inrange => inrange, :presigmoid => presigmoid, :aimedmeasurementnumbers => aimedmeasurementnumbers, :returnplot => returnplot, :VAE => VAE)
-    #end
     returnplot
 end
 
@@ -155,13 +156,13 @@ function threshold_through_fit(xdata, ydata; sigmoid_x_scale=2.5f0)
 end
 
 """Scatter plot recovery errors for a single image, fit a sigmoid in the log-log scale, return the recovery threshold from the fit"""
-function recoverythreshold_fromrandomimage(VAE, VAEdecoder, aimedmeasurementnumbers, k, n; img=nothing, presigmoid=true, inrange=true, typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
+function recoverythreshold_fromrandomimage(VAE, aimedmeasurementnumbers; img=nothing, presigmoid=true, inrange=true, typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
 
     # pick image at random
-    @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
+    decoder = VAE.decoder
     if !presigmoid #preprocess the models
         VAE = sigmoid ∘ VAE
-        VAEdecoder = sigmoid ∘ VAEdecoder
+        decoder = sigmoid ∘ decoder
     end
 
     if isnothing(img)
@@ -175,9 +176,9 @@ function recoverythreshold_fromrandomimage(VAE, VAEdecoder, aimedmeasurementnumb
     recoveryerrors = Vector{Float32}(undef, length(aimedmeasurementnumbers))
 
     @threads for (i, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-        true_m, F = sampleFourierwithoutreplacement(aimedm, n, true)
+        true_m, F = sampleFourierwithoutreplacement(aimedm, getlayerdims(decoder)[end], true)
         measurements = F * truesignal
-        recovery = recoversignal(measurements, F, VAEdecoder, k, tolerance=5e-4; kwargs...)
+        recovery = recoversignal(measurements, F, decoder, tolerance=5e-4; kwargs...)
 
         true_ms[i] = true_m
         recoveryerrors[i] = norm(recovery - truesignal)
@@ -190,11 +191,12 @@ function recoverythreshold_fromrandomimage(VAE, VAEdecoder, aimedmeasurementnumb
     if !isnothing(savefile)
         @save savefile true_ms recoveryerrors threshold truesignal inrange presigmoid aimedmeasurementnumbers VAE fit
     end
+
     (threshold=threshold, fitplot=returnplot, fitdata=datapoints, fitobject=fit) #threshold, and things to check if threshold is accurate
 end
 
 """Compare models through the recovery threshold of a small number of images"""
-function compare_models_from_thresholds(modelstocompare, modellabels, aimedmeasurementnumbers, numimages::Integer, k, n; typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
+function compare_models_from_thresholds(modelstocompare, modellabels, aimedmeasurementnumbers, numimages::Integer; typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
     # Still need to debug this
 
     dataset = MNIST(Float32, typeofdata).features
@@ -211,10 +213,10 @@ function compare_models_from_thresholds(modelstocompare, modellabels, aimedmeasu
     images = [dataset[:, :, rand(1:size(dataset)[3])] for i in 1:numimages]
     @threads for (i, img) in collect(enumerate(images))
 
-        @threads for (j, model) in collect(enumerate(modelstocompare))
-            returnobj = recoverythreshold_fromrandomimage(model, model.decoder, aimedmeasurementnumbers, k, n, img=img, savefile=nothing; kwargs...)
+        @threads for (label, model) in collect(zip(modellabels, modelstocompare))
+            returnobj = recoverythreshold_fromrandomimage(model, model.decoder, aimedmeasurementnumbers, img=img, savefile=nothing; kwargs...)
             results[i*j, collect(keys(returnobj))] = returnobj
-            results[i*j, :modelname] = modellabels[j]
+            results[i*j, :modelname] = label
             results[i*j, :image] = img
         end
         @info i #give some idea of progress
@@ -234,35 +236,32 @@ logrange(low_meas, high_meas, num_meas) = convert.(Int, floor.(exp.(LinRange(log
 
 """
 Make a scatter plot of recovery errors for random images for different numbers of measurements.
-
-arguments:
-models is an array of (name, model, decoder)
 """
-function plot_models_recovery_errors(models::AbstractArray, aimedmeasurementnumbers::AbstractArray, k::Integer, n::Integer;
+function plot_models_recovery_errors(models::Vector{<:FullVae}, modellabels::Vector{<:AbstractString}, aimedmeasurementnumbers::AbstractArray;
     presigmoid=true, inrange=true, typeofdata=:test, savefile="reusefiles/experiment_data/ansdata.BSON", kwargs...)
 
     if !presigmoid #preprocess the models
-        models = [(sigmoid ∘ model[1], sigmoid ∘ model[2]) for model in models]
+        for model in models
+            model.decoder = sigmoid ∘ model.decoder
+        end
     end
 
     dataset = MNIST(Float32, typeofdata).features
 
-
-
     returnplot = plot()
     returndata = Dict()
 
-    for model in models
+    for (label, model) in zip(modellabels, models)
         recoveryerrors = Vector{Float32}(undef, length(aimedmeasurementnumbers))
         true_ms = Vector{Float32}(undef, length(aimedmeasurementnumbers))
 
         @threads for (i, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             img = dataset[:, :, rand(1:size(dataset)[3])]
-            truesignal, _ = _preprocess_MNIST_truesignal(img, model[2], presigmoid, inrange)
+            truesignal, _ = _preprocess_MNIST_truesignal(img, model.decoder, presigmoid, inrange)
 
-            true_m, F = sampleFourierwithoutreplacement(aimedm, n, true)
+            true_m, F = sampleFourierwithoutreplacement(aimedm, getlayerdims(model.decoder)[end], true)
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, model[3], k, tolerance=5e-4; kwargs...)
+            recovery = recoversignal(measurements, F, label, tolerance=5e-4; kwargs...)
 
             true_ms[i] = true_m
             recoveryerrors[i] = norm(recovery .- truesignal)
