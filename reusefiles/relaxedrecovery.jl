@@ -1,4 +1,5 @@
 using Flux
+using Flux: Chain
 
 include("compressedsensing.jl")
 
@@ -6,49 +7,70 @@ include("compressedsensing.jl")
 Recover with features at all layers of the network to convexify the problem; this may allow the use of other optimizers
 This Function yields optimizations out of range. To get closer to the range, increase link strength
 
+It seems more expensive to allocate the extra memory than the gain in optimization, so this does not result in a speedup.
+
 returns (code, signal)
 """
-function relaxed_recover(measurements, A, generativenet::Flux.Chain, encodingdims::AbstractVector{<:Integer}; linkstrength=0.1f0, kwargs...)
-    function relaxedloss(generativechain::Flux.Chain, linkstrength::AbstractFloat, truemeasurements, fullcode::AbstractVector)
-        @assert length(fullcode) == length(generativechain.layers)
-        linkloss = 0
-        for (i, layer) in enumerate(generativechain.layers[1:end-1])
-            linkloss += sum(abs2.(layer(fullcode[i]) .- fullcode[i+1])) / encodingdims[i+1]
-        end
-        mismatchloss = sum(abs2.(A * generativechain.layers[end](fullcode[end]) .- truemeasurements))
 
-        mismatchloss + linkstrength * linkloss
+function relaxedloss(measurements, A, generativenet::Flux.Chain, linkstrength::AbstractFloat, networkparts::AbstractArray, fullcode::Tuple{Vararg{<:AbstractArray}})
+    @assert length(fullcode) == length(networkparts) "the lengths of  fullcode  and  networkparts  must match, they are $(length(fullcode)) and $(length(networkparts))"
+    linkloss = 0
+    for (i, networkpart) in enumerate(networkparts[1:end-1])
+        linkloss += sum(abs2.(networkpart(fullcode[i]) .- fullcode[i+1]))
     end
-    optimloss(x, p::Tuple) = relaxedloss(p..., x)
+    mismatchloss = sum(abs2.(A * networkparts[end](fullcode[end]) .- measurements))
 
-    p = (generativenet, linkstrength, measurements)
-    z0 = [randn(dims) for dims in encodingdims]
-
-    recoveredencodings = optimise!(optimloss, p, z0)
-
-    (recoveredencodings[1], generativenet(recoveredencodings[1]))
+    mismatchloss + linkstrength * linkloss
 end
 
-function accelerated_recovery(measurements, A, model, encoding_dims; kwargs...)
+
+function relaxed_recover(measurements, A, generativenet::Flux.Chain, intermediate_optimlayers::AbstractArray{<:Integer}; linkstrength=1.0f0, kwargs...)
+
+    optimloss(x, p::Tuple) = relaxedloss(p..., x)
+
+    netparts = AbstractArray{Chain}([])
+    push!(netparts, generativenet.layers[1:intermediate_optimlayers[1]] |> Chain)
+    for i in 2:length(intermediate_optimlayers)
+        push!(netparts, generativenet.layers[intermediate_optimlayers[i-1]+1:intermediate_optimlayers[i]] |> Flux.Chain)
+    end
+    push!(netparts, generativenet.layers[intermediate_optimlayers[end]+1:end] |> Chain)
+
+    p = (measurements, A, generativenet, linkstrength, netparts)
+
+    codes = [randn(Float32, size(generativenet.layers[1].weight)[2])]
+    for index in intermediate_optimlayers
+        push!(codes, randn(Float32, size(generativenet.layers[index].weight)[1]))
+    end
+    codes = Tuple(codes)
+    # The problem is that 
+
+    recoveredencodings = optimise!(optimloss, p, codes; kwargs...)
+
+    netparts[end](recoveredencodings[end])
+end
+
+
+function accelerated_recovery(measurements, A, model; kwargs...)
     opt = ADAM()
-    code, _ = relaxed_recover(measurements, A, model, encoding_dims, opt=opt)
-    recoversignal(measurements, A, model, encoding_dims[1], init_code=code, opt=opt)
+    code, _ = relaxed_recover(measurements, A, model, opt=opt)
+    recoversignal(measurements, A, model, init_code=code, opt=opt)
 end
 
 
 
 include("VAE_recovery.jl")
+include("vaemodels.jl")
 """
 Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder, aimedmeasurementnumbers, numbers, layerdims; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
-
-    @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
+function plot_MNISTrecoveries_bynumber_bymeasurementnumber_relaxed(VAE, aimedmeasurementnumbers, numbers; linkstrength=1.0f0, intermediatelayers=collect(indexof(VAE.decoder.layers)), presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
+    decoder = VAE.decoder
     if !presigmoid #preprocess the models
         VAE = sigmoid ∘ VAE
-        VAEdecoder = sigmoid ∘ VAEdecoder
+        decoder = sigmoid ∘ decoder
     end
 
     MNISTtestdata = MNIST(Float32, typeofdata)
@@ -57,7 +79,7 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder,
     @threads for (i, number) in collect(enumerate(numbers))
 
         numberset = MNISTtestdata.features[:, :, MNISTtestdata.targets.==number]
-        img = numberset[:, :, rand(1:size(numberset)[end])]
+        img = numberset[:, :, rand(rng, 1:size(numberset)[end])]
 
         truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
 
@@ -65,16 +87,18 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder,
                       plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
 
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-            F = sampleFourierwithoutreplacement(aimedm, layerdims[end])
+            F = sampleFourierwithoutreplacement(aimedm, length(truesignal))
             measurements = F * truesignal
+            recovery = relaxed_recover(measurements, F, decoder, intermediatelayers, linkstrength=linkstrength; kwargs...)
 
-            recovery = accelerated_recovery(measurements, F, VAEdecoder, layerdims[1:end-1], tolerance=5e-4; kwargs...)
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
             title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
             plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
+
         end
     end
+
     scale = plotwidth / length(aimedmeasurementnumbers)
     title_plot_margin = 100
     returnplot = plot(permutedims(plots)...,
@@ -84,9 +108,5 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE, VAEdecoder,
         axis=([], false),
         titlefontsize=12)
 
-    #if !isnothing(savefile)
-    #this needs data that are not plots
-    #@save savefile plots metadata = Dict(:inrange => inrange, :presigmoid => presigmoid, :aimedmeasurementnumbers => aimedmeasurementnumbers, :returnplot => returnplot, :VAE => VAE)
-    #end
     returnplot
 end

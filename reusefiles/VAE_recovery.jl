@@ -11,7 +11,7 @@ include("compressedsensing.jl")
 #include("plottingfunctions.jl")
 
 "Makes the true signal of the correct type and shape"
-function _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
+function _preprocess_MNIST_truesignal(img, VAE::FullVae, presigmoid, inrange)
 
     function inversesigmoid(y; clampmargin=1.0f-3)
         y = clamp(y, 0.0f0 + clampmargin, 1.0f0 - clampmargin)
@@ -35,60 +35,6 @@ end
 
 getlayerdims(ChainDecoder::Flux.Chain{<:Tuple{Vararg{Dense}}}) =
     vcat([size(layer.weight)[2] for layer in ChainDecoder.layers], [size(ChainDecoder.layers[end].weight)[1]])
-
-"""
-Same as below but uses different recovery algorithm; for testing purposes
-"""
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber_fast(VAE::FullVae, aimedmeasurementnumbers, numbers; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
-
-    @assert !isnothing(VAE) || inrange == false "first field VAE caonnot be nothing when in range"
-
-    decoder = VAE.decoder
-    if !presigmoid #preprocess the models
-        VAE = sigmoid ∘ VAE
-        decoder = sigmoid ∘ decoder
-    end
-
-    MNISTtestdata = MNIST(Float32, typeofdata)
-    plots = Matrix{Plots.Plot}(undef, length(numbers), length(aimedmeasurementnumbers) + 1)
-
-    @threads for (i, number) in collect(enumerate(numbers))
-
-        numberset = MNISTtestdata.features[:, :, MNISTtestdata.targets.==number]
-        img = numberset[:, :, rand(1:size(numberset)[end])]
-
-        truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
-
-        plots[i, 1] = i == 1 ? plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'), title="signal") :
-                      plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
-
-        @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-            F = sampleFourierwithoutreplacement(aimedm, n)
-            measurements = F * truesignal
-            recovery = recoversignal(measurements, F, decoder, k, tolerance=5e-4; kwargs...)
-            recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
-            plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
-            title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
-            plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
-
-        end
-    end
-    scale = plotwidth / length(aimedmeasurementnumbers)
-    title_plot_margin = 100
-    returnplot = plot(permutedims(plots)...,
-        layout=(length(numbers), length(aimedmeasurementnumbers) + 1),
-        size=((length(aimedmeasurementnumbers) + 1) * scale, length(numbers) * scale + title_plot_margin),
-        background_color=:grey93,
-        axis=([], false),
-        titlefontsize=12)
-
-    #if !isnothing(savefile)
-    #this needs data that are not plots
-    #@save savefile plots metadata = Dict(:inrange => inrange, :presigmoid => presigmoid, :aimedmeasurementnumbers => aimedmeasurementnumbers, :returnplot => returnplot, :VAE => VAE)
-    #end
-    returnplot
-end
-
 
 """
 Plot a matrix of recovery images by number for different measurement numbers
@@ -119,7 +65,7 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             F = sampleFourierwithoutreplacement(aimedm, length(truesignal))
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, decoder, tolerance=5e-4; kwargs...)
+            recovery = recoversignal(measurements, F, decoder; kwargs...)
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
             title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
@@ -151,7 +97,7 @@ function threshold_through_fit(xdata, ydata; sigmoid_x_scale=2.5f0)
     @. curve(x, p) = p[1] * sigmoid((x - p[2]) / (-sigmoid_x_scale)) + p[3]
     p0 = [3.0f0, 1.0f2, 1.5f0]
     fit = curve_fit(curve, xdata, ylogdata, p0)
-    scatter(xdata, ydata, xaxis=:log, yaxis=:log) #although we do not fit for log(x) we still plot x in log scale for clarity
+    scatter(xdata, ydata, yaxis=:log) #although we do not fit for log(x) we still plot x in log scale for clarity
     (coef(fit)[2], fit, plot!(x -> exp(curve(x, coef(fit)))))
 end
 
@@ -178,7 +124,7 @@ function recoverythreshold_fromrandomimage(VAE, aimedmeasurementnumbers; img=not
     @threads for (i, aimedm) in collect(enumerate(aimedmeasurementnumbers))
         true_m, F = sampleFourierwithoutreplacement(aimedm, getlayerdims(decoder)[end], true)
         measurements = F * truesignal
-        recovery = recoversignal(measurements, F, decoder, tolerance=5e-4; kwargs...)
+        recovery = recoversignal(measurements, F, decoder; kwargs...)
 
         true_ms[i] = true_m
         recoveryerrors[i] = norm(recovery - truesignal)
@@ -205,25 +151,24 @@ function compare_models_from_thresholds(modelstocompare, modellabels, aimedmeasu
 
     results = DataFrame(threshold=Vector{Float32}(undef, numexperiments),
         fitplot=Vector{Plots.Plot}(undef, numexperiments),
-        fitdata=Vector{Dict{Int,Float32}}(undef, numexperiments),
+        fitdata=Vector{Matrix{Float32}}(undef, numexperiments),
         fitobject=Vector{LsqFit.LsqFitResult}(undef, numexperiments),
         image=Vector{Matrix{Float32}}(undef, numexperiments),
         modelname=Vector{String}(undef, numexperiments))
 
     images = [dataset[:, :, rand(1:size(dataset)[3])] for i in 1:numimages]
     @threads for (i, img) in collect(enumerate(images))
-
-        @threads for (label, model) in collect(zip(modellabels, modelstocompare))
-            returnobj = recoverythreshold_fromrandomimage(model, model.decoder, aimedmeasurementnumbers, img=img, savefile=nothing; kwargs...)
-            results[i*j, collect(keys(returnobj))] = returnobj
-            results[i*j, :modelname] = label
-            results[i*j, :image] = img
+        @threads for (j, model) in collect(enumerate(modelstocompare))
+            returnobj = recoverythreshold_fromrandomimage(model, aimedmeasurementnumbers, img=img, savefile=nothing; kwargs...)
+            results[i+(j-1)*numimages, collect(keys(returnobj))] = returnobj
+            results[i+(j-1)*numimages, :modelname] = modellabels[j]
+            results[i+(j-1)*numimages, :image] = img
         end
         @info i #give some idea of progress
     end
 
     if !isnothing(savefile)
-        @save savefile aimedmeasurementnumbers k n results
+        @save savefile aimedmeasurementnumbers results
     end
 
     return results
@@ -251,24 +196,25 @@ function plot_models_recovery_errors(models::Vector{<:FullVae}, modellabels::Vec
     returnplot = plot()
     returndata = Dict()
 
+    returnplot = plot()
     for (label, model) in zip(modellabels, models)
         recoveryerrors = Vector{Float32}(undef, length(aimedmeasurementnumbers))
         true_ms = Vector{Float32}(undef, length(aimedmeasurementnumbers))
 
         @threads for (i, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             img = dataset[:, :, rand(1:size(dataset)[3])]
-            truesignal, _ = _preprocess_MNIST_truesignal(img, model.decoder, presigmoid, inrange)
+            truesignal, _ = _preprocess_MNIST_truesignal(img, model, presigmoid, inrange)
 
             true_m, F = sampleFourierwithoutreplacement(aimedm, getlayerdims(model.decoder)[end], true)
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, label, tolerance=5e-4; kwargs...)
+            recovery = recoversignal(measurements, F, model.decoder; kwargs...)
 
             true_ms[i] = true_m
             recoveryerrors[i] = norm(recovery .- truesignal)
         end
 
-        returndata[model[1]] = (true_ms, recoveryerrors)
-        returnplot = scatter!(true_ms, recoveryerrors, xaxis=:log, yaxis=:log, label=model[1])
+        returndata[label] = (true_ms, recoveryerrors)
+        returnplot = scatter!(true_ms, recoveryerrors, yaxis=:log, label=label)
     end
 
     if !isnothing(savefile)

@@ -132,9 +132,6 @@ function trainstdVaeonMNIST()
     trainVAE(1.0f0, 0.01f0, model, params(model), trainloader, Flux.Optimise.ADAM(), 40, "./reusefiles/models/", "./reusefiles/logs/", label="working", loginterval=100)
 end
 
-
-
-
 function VAEloss_unitarycoherence(x, F, model::FullVae, pars, lastlayer, β, λ, α)
     function klfromgaussian(μ, logvar)
         0.5 * sum(@. (exp(logvar) + μ^2 - logvar - 1.0))

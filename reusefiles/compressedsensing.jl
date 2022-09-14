@@ -13,11 +13,12 @@ using Base.Threads
 
     loss takes z as an argument.
 """
-function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, out_toggle=1e2, max_iter=15_000, tblogdir=nothing)
+function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(5.0f0), tolerance=1.0f-1, out_toggle=1e2, max_iter=5_000, tblogdir=nothing)
     tol2 = tolerance^2
     usingtb = !isnothing(tblogdir)
     logger = usingtb ? TBLogger(tblogdir) : current_logger()
 
+    #ps = typeof(z) <: AbstractArray{<:AbstractArray} ? params(z...) : params(z)
     ps = params(z)
     iter = 1
     succerror = 0.0f0
@@ -29,7 +30,13 @@ function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, ou
             end
             grads = gradient(() -> loss(z, p), ps) #loss cannot have any arguments
             update!(opt, ps, grads)
-            succerror = sum(abs2, grads[z])
+
+            if typeof(z) <: Tuple
+                succerror = sum((sum(abs2, grads[elt]) for elt in z))
+            else
+                succerror = sum(abs2, grads[z])
+            end
+
             if usingtb && out_toggle != 0 && iter % out_toggle == 0
                 @info "recovery optimization step" iter grad_size = sqrt(succerror) lossval = sqrt(loss(z))
             end
@@ -44,7 +51,7 @@ function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(0.001), tolerance=5e-4, ou
     return z
 end
 
-function recoversignal(measurements, A, decoder; init_code=size(decoder.layers[1].weight)[2], kwargs...)
+function recoversignal(measurements, A, decoder; init_code=randn(Float32, size(decoder.layers[1].weight)[2]), kwargs...)
     @debug "Starting Image Recovery"
     function loss(x, p::Tuple)
         return sum(abs2, A * p[1](x) - p[2])
