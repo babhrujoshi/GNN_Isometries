@@ -41,8 +41,8 @@ Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurementnumbers, numbers; presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
-
+function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurementnumbers, numbers; recoveryfn = recoversignal, presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
     decoder = VAE.decoder
     if !presigmoid #preprocess the models
         VAE = sigmoid ∘ VAE
@@ -55,7 +55,7 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
     @threads for (i, number) in collect(enumerate(numbers))
 
         numberset = MNISTtestdata.features[:, :, MNISTtestdata.targets.==number]
-        img = numberset[:, :, rand(1:size(numberset)[end])]
+        img = numberset[:, :, rand(rng, 1:size(numberset)[end])]
 
         truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
 
@@ -65,7 +65,8 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             F = sampleFourierwithoutreplacement(aimedm, length(truesignal))
             measurements = F * truesignal
-            recovery = recoversignal(measurements, F, decoder; kwargs...)
+            recovery = recoveryfn(measurements, F, decoder; kwargs...)
+
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
             title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"

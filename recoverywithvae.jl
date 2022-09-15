@@ -4,7 +4,7 @@ using TensorBoardLogger
 using Plots
 using Flux
 
-#include("reusefiles/vaemodels.jl")
+include("reusefiles/compressedsensing.jl")
 include("reusefiles/relaxedrecovery.jl")
 
 @load "reusefiles/savedmodels/more_incoherentepoch20" model
