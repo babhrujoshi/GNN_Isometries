@@ -3,7 +3,7 @@ using Flux: Chain
 include("compressedsensing.jl") #we need the optimise function
 
 
-function relaxedloss(measurements, A, generativenet::Flux.Chain, linkstrength::AbstractFloat, networkparts::AbstractArray, fullcode::Tuple{Vararg{<:AbstractArray}})
+function relaxedloss(measurements, A, linkstrength::AbstractFloat, networkparts::AbstractArray, fullcode::Tuple{Vararg{<:AbstractArray}})
     @assert length(fullcode) == length(networkparts) "the lengths of  fullcode  and  networkparts  must match, they are $(length(fullcode)) and $(length(networkparts))"
     linkloss = 0
     for (i, networkpart) in enumerate(networkparts[1:end-1])
@@ -15,21 +15,21 @@ function relaxedloss(measurements, A, generativenet::Flux.Chain, linkstrength::A
 end
 
 
-function relaxed_recover(measurements, A, generativenet::Flux.Chain ; intermediatelayers=collect(indexof(generativenet.layers)), linkstrength=1.0f0, kwargs...)
+function relaxed_recover(measurements, A, generativenet::Flux.Chain; optimlayers=collect(indexof(generativenet.layers)), linkstrength=1.0f0, kwargs...)
 
     optimloss(x, p::Tuple) = relaxedloss(p..., x)
 
     netparts = AbstractArray{Chain}([])
-    push!(netparts, generativenet.layers[1:intermediate_optimlayers[1]] |> Chain)
-    for i in 2:length(intermediate_optimlayers)
-        push!(netparts, generativenet.layers[intermediate_optimlayers[i-1]+1:intermediate_optimlayers[i]] |> Flux.Chain)
+    push!(netparts, generativenet.layers[1:optimlayers[1]] |> Chain)
+    for i in 2:length(optimlayers)
+        push!(netparts, generativenet.layers[optimlayers[i-1]+1:optimlayers[i]] |> Flux.Chain)
     end
-    push!(netparts, generativenet.layers[intermediate_optimlayers[end]+1:end] |> Chain)
+    push!(netparts, generativenet.layers[optimlayers[end]+1:end] |> Chain)
 
-    p = (measurements, A, generativenet, linkstrength, netparts)
+    p = (measurements, A, linkstrength, netparts)
 
     codes = [randn(Float32, size(generativenet.layers[1].weight)[2])]
-    for index in intermediate_optimlayers
+    for index in optimlayers
         push!(codes, randn(Float32, size(generativenet.layers[index].weight)[1]))
     end
     codes = Tuple(codes)

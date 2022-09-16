@@ -5,6 +5,7 @@ using LinearAlgebra
 using TensorBoardLogger
 using Logging
 using Base.Threads
+using Random
 
 """
     optimise(init_z, loss, opt, tolerance, [out_toggle = 0,][max_iter = 1_000_000])
@@ -13,7 +14,7 @@ using Base.Threads
 
     loss takes z as an argument.
 """
-function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(5.0f0), tolerance=1.0f-1, out_toggle=1e2, max_iter=5_000, tblogdir=nothing)
+function optimise!(loss, p, z; opt=Flux.Optimise.ADAM(5.0f0), tolerance=1.0f-1, out_toggle=1e2, max_iter=5_000, tblogdir=nothing, kwargs...)
     tol2 = tolerance^2
     usingtb = !isnothing(tblogdir)
     logger = usingtb ? TBLogger(tblogdir) : current_logger()
@@ -62,9 +63,9 @@ function recoversignal(measurements, A, decoder; init_code=randn(Float32, size(d
 end
 
 
-function sampleFourierwithoutreplacement(aimed_m, n)
+function sampleFourierwithoutreplacement(aimed_m, n; rng=TaskLocalRNG())
     F = Float32.(dct(diagm(ones(n)), 2))
-    sampling = rand(Bernoulli(aimed_m / n), n)
+    sampling = rand(rng, Bernoulli(aimed_m / n), n)
     true_m = sum(sampling)
     F[sampling, :] * sqrt(n / true_m)
     #return get_true_m ? (true_m, normalized_F) : normalized_F # normalize it

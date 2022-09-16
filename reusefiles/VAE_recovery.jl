@@ -5,6 +5,7 @@ using LsqFit
 using Plots
 using Printf
 using DataFrames
+using Random
 
 include("vaemodels.jl")
 include("compressedsensing.jl")
@@ -41,7 +42,7 @@ Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
-function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurementnumbers, numbers; recoveryfn = recoversignal, presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, kwargs...)
+function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::Vector{<:Integer}, images::Vector{<:AbstractArray}; recoveryfn=recoversignal, presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, rng=TaskLocalRNG(), kwargs...)
     #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
     decoder = VAE.decoder
     if !presigmoid #preprocess the models
@@ -49,13 +50,9 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
         decoder = sigmoid ∘ decoder
     end
 
-    MNISTtestdata = MNIST(Float32, typeofdata)
-    plots = Matrix{Plots.Plot}(undef, length(numbers), length(aimedmeasurementnumbers) + 1)
+    plots = Matrix{Plots.Plot}(undef, length(images), length(aimedmeasurementnumbers) + 1)
 
-    @threads for (i, number) in collect(enumerate(numbers))
-
-        numberset = MNISTtestdata.features[:, :, MNISTtestdata.targets.==number]
-        img = numberset[:, :, rand(rng, 1:size(numberset)[end])]
+    @threads for (i, img) in collect(enumerate(images))
 
         truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
 
@@ -63,13 +60,14 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
                       plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
 
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-            F = sampleFourierwithoutreplacement(aimedm, length(truesignal))
+            F = sampleFourierwithoutreplacement(aimedm, length(truesignal), rng=Xoshiro((i - 1) * length(aimedmeasurementnumbers) + j))
+            #we let the choice of measurement be consistent accross trials.
             measurements = F * truesignal
             recovery = recoveryfn(measurements, F, decoder; kwargs...)
 
             recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
             plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
-            title = i == 1 ? "m:$aimedm er:$recoveryerror" : "er:$recoveryerror"
+            title = i == 1 ? "m:$aimedm \n err:$recoveryerror" : "er:$recoveryerror"
             plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
 
         end
@@ -78,14 +76,57 @@ function plot_MNISTrecoveries_bynumber_bymeasurementnumber(VAE, aimedmeasurement
     scale = plotwidth / length(aimedmeasurementnumbers)
     title_plot_margin = 100
     returnplot = plot(permutedims(plots)...,
-        layout=(length(numbers), length(aimedmeasurementnumbers) + 1),
-        size=((length(aimedmeasurementnumbers) + 1) * scale, length(numbers) * scale + title_plot_margin),
+        layout=(length(images), length(aimedmeasurementnumbers) + 1),
+        size=((length(aimedmeasurementnumbers) + 1) * scale, length(images) * scale + title_plot_margin),
         background_color=:grey93,
         axis=([], false),
-        titlefontsize=12)
+        titlefontsize=10)
 
     returnplot
 end
+
+
+function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
+    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
+    images = imagesfromnumbers(numbers, typeofdata, rng=rng)
+    plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; kwargs...)
+end
+
+function plot_MNISTrecoveries(recoveryfns::Vector{<:Function}, VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
+    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
+    images = imagesfromnumbers(numbers, typeofdata, rng=rng)
+    plots = []
+    for fnpick in recoveryfns
+        @time myplot = plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; recoveryfn=fnpick, kwargs...)
+        push!(plots, myplot)
+    end
+    plots
+end
+
+
+function imagesfromnumbers(numbers::AbstractArray{<:Integer}, typeofdata; rng=TaskLocalRNG())
+    data = MNIST(Float32, typeofdata)
+    images = []
+    for number in numbers
+        numberset = data.features[:, :, data.targets.==number]
+        push!(images, numberset[:, :, rand(rng, 1:size(numberset)[end])])
+    end
+    convert(AbstractArray{typeof(images[1])}, images)
+end
+
+
+function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}, recoveryfunctions::AbstractArray; seed=53, kwargs...)
+    plots = []
+
+    for recoveryfn in recoveryfunctions
+        rng = Xoshiro(seed)
+        #numbersets = [MNISTtestdata.features[:,:, MNISTtestdata.targets.== number] for number in 1:9]
+        push!(plots, plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, numbers, recoveryfn=recoveryfn, rng=rng; kwargs...))
+    end
+    plots
+end
+
+
 
 #using BSON: @load
 #@load "reusefiles/savedmodels/incoherentepoch20" model
