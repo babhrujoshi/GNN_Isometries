@@ -264,3 +264,56 @@ function plot_models_recovery_errors(models::Vector{<:FullVae}, modellabels::Vec
     end
     returnplot
 end
+
+using Makie
+
+"""
+Plot a matrix of recovery images by number for different measurement numbers
+The VAE and VAE decoder should never have a final activation
+VAE can be given as nothing if "inrange=false" is given.
+"""
+function plot_MNISTrecoveries_Makie(VAE::FullVae, aimedmeasurementnumbers::Vector{<:Integer}, images::Vector{<:AbstractArray}; recoveryfn=recoversignal, presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, rng=TaskLocalRNG(), kwargs...)
+    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
+    decoder = VAE.decoder
+    if !presigmoid #preprocess the models
+        VAE = sigmoid ∘ VAE
+        decoder = sigmoid ∘ decoder
+    end
+
+    plots = Matrix{Plots.Plot}(undef, length(images), length(aimedmeasurementnumbers) + 1)
+
+    image
+
+
+    @threads for (i, img) in collect(enumerate(images))
+
+        truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
+
+        plots[i, 1] = i == 1 ? plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'), title="signal") :
+                      plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
+
+        @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
+            F = sampleFourierwithoutreplacement(aimedm, length(truesignal), rng=Xoshiro((i - 1) * length(aimedmeasurementnumbers) + j))
+            #we let the choice of measurement be consistent accross trials.
+            measurements = F * truesignal
+            recovery = recoveryfn(measurements, F, decoder; kwargs...)
+
+            recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
+            plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
+            title = i == 1 ? "m:$aimedm \n err:$recoveryerror" : "er:$recoveryerror"
+            plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
+
+        end
+    end
+
+    scale = plotwidth / length(aimedmeasurementnumbers)
+    title_plot_margin = 100
+    returnplot = plot(permutedims(plots)...,
+        layout=(length(images), length(aimedmeasurementnumbers) + 1),
+        size=((length(aimedmeasurementnumbers) + 1) * scale, length(images) * scale + title_plot_margin),
+        background_color=:grey93,
+        axis=([], false),
+        titlefontsize=10)
+
+    returnplot
+end
