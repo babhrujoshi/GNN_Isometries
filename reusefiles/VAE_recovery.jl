@@ -19,7 +19,7 @@ function _preprocess_MNIST_truesignal(img, VAE::FullVae, presigmoid, inrange)
         log(y / (1.0f0 - y))
     end
 
-    img = reshape(img, 28^2, :)
+    img = reshape(img, :)
 
     truesignal = img
     plottedtruesignal = img
@@ -86,10 +86,10 @@ function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::Vector{<:In
 end
 
 
-function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
+function plot_MNISTrecoveries_Makie(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
     #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
     images = imagesfromnumbers(numbers, typeofdata, rng=rng)
-    plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; kwargs...)
+    plot_MNISTrecoveries_Makie(VAE, aimedmeasurementnumbers, images; kwargs...)
 end
 
 function plot_MNISTrecoveries(recoveryfns::Vector{<:Function}, VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
@@ -265,8 +265,7 @@ function plot_models_recovery_errors(models::Vector{<:FullVae}, modellabels::Vec
     returnplot
 end
 
-using Makie
-
+using CairoMakie
 """
 Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
@@ -279,41 +278,35 @@ function plot_MNISTrecoveries_Makie(VAE::FullVae, aimedmeasurementnumbers::Vecto
         VAE = sigmoid ∘ VAE
         decoder = sigmoid ∘ decoder
     end
-
-    plots = Matrix{Plots.Plot}(undef, length(images), length(aimedmeasurementnumbers) + 1)
-
-    image
-
-
-    @threads for (i, img) in collect(enumerate(images))
-
+    signalimages = Vector{Vector{Float32}}(undef, length(images))
+    plotimages = Matrix{Vector{Float32}}(undef, length(images), length(aimedmeasurementnumbers))
+    recoveryerrors = Matrix{Float32}(undef, length(images), length(aimedmeasurementnumbers))
+    F = sampleFourierwithoutreplacement(length(images[1]), length(images[1]))
+    n = length(images[1])
+    for (i, img) in collect(enumerate(images))
         truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
-
-        plots[i, 1] = i == 1 ? plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'), title="signal") :
-                      plot(colorview(Gray, 1.0f0 .- reshape(plottedtruesignal, 28, 28)'))
-
-        @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
-            F = sampleFourierwithoutreplacement(aimedm, length(truesignal), rng=Xoshiro((i - 1) * length(aimedmeasurementnumbers) + j))
-            #we let the choice of measurement be consistent accross trials.
-            measurements = F * truesignal
-            recovery = recoveryfn(measurements, F, decoder; kwargs...)
-
-            recoveryerror = @sprintf("%.1E", norm(recovery .- truesignal))
-            plottedrecovery = presigmoid ? sigmoid(recovery) : recovery
-            title = i == 1 ? "m:$aimedm \n err:$recoveryerror" : "er:$recoveryerror"
-            plots[i, j+1] = plot(colorview(Gray, 1.0f0 .- (reshape(plottedrecovery, 28, 28)')), title=title)
-
+        signalimages[i] = plottedtruesignal
+        for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
+            freq = rand(rng, Bernoulli(aimedm / n), n)
+            @views sampledF = F[freq, :]
+            measurements = sampledF * truesignal
+            recovery = recoveryfn(measurements, sampledF, decoder; kwargs...)
+            recoveryerrors[i, j] = norm(recovery .- truesignal)
+            plotimages[i, j] = presigmoid ? sigmoid(recovery) : recovery
         end
     end
 
-    scale = plotwidth / length(aimedmeasurementnumbers)
-    title_plot_margin = 100
-    returnplot = plot(permutedims(plots)...,
-        layout=(length(images), length(aimedmeasurementnumbers) + 1),
-        size=((length(aimedmeasurementnumbers) + 1) * scale, length(images) * scale + title_plot_margin),
-        background_color=:grey93,
-        axis=([], false),
-        titlefontsize=10)
 
-    returnplot
+    f = Figure()
+    for (i, signalimage) in enumerate(signalimages)
+        ax, plt = CairoMakie.heatmap!(f[i+1, 1], reshape(signalimage, 28, 28)[:, 1:-1:end], colormap=:grays)
+        hidedecorations!(ax)
+    end
+    for i in 1:size(plotimages)[1], j in 1:size(plotimages)[2]
+        ax, plt = CairoMakie.heatmap!(f[i+1, j+1], reshape(plotimages[i, j], 28, 28)[:, 1:-1:end], title=@sprintf("%.1E", recoveryerrors[i, j]), colormap=:grays)
+        hidedecorations!(ax)
+    end
+    for (i, m) in enumerate(aimedmeasurementnumbers)
+        Label(f[1, i+1], "m:$m")
+    end
 end
