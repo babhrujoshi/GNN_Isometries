@@ -8,13 +8,18 @@ using DataFrames
 using Random
 using CairoMakie
 using CairoMakie: Axis
+using Flux
+using MLDatasets
 
 include("vaemodels.jl")
+
+using .VaeModels
+
 include("compressedsensing.jl")
 #include("plottingfunctions.jl")
 
 "Makes the true signal of the correct type and shape"
-function _preprocess_MNIST_truesignal(img, VAE::FullVae, presigmoid, inrange)
+function _preprocess_MNIST_truesignal(img, VAE::Union{FullVae,ComposedFunction}, presigmoid, inrange; rng=TaskLocalRNG())
 
     function inversesigmoid(y; clampmargin=1.0f-3)
         y = clamp(y, 0.0f0 + clampmargin, 1.0f0 - clampmargin)
@@ -27,7 +32,7 @@ function _preprocess_MNIST_truesignal(img, VAE::FullVae, presigmoid, inrange)
     plottedtruesignal = img
 
     if inrange
-        truesignal = VAE(img, 100)
+        truesignal = VAE(img, 100, rng=rng)
         plottedtruesignal = presigmoid ? sigmoid(truesignal) : truesignal
     elseif presigmoid
         truesignal = inversesigmoid.(img)
@@ -47,6 +52,13 @@ function imagesfromnumbers(numbers::AbstractArray{<:Integer}, typeofdata; rng=Ta
     convert(AbstractArray{typeof(images[1])}, images)
 end
 
+function imagesfromnumbers(numbers::Integer, typeofdata; rng=TaskLocalRNG())
+    data = MNIST(Float32, typeofdata)
+    numberset = data.features[:, :, data.targets.==numbers]
+    numberset[:, :, rand(rng, 1:size(numberset)[end])]
+end
+
+
 getlayerdims(ChainDecoder::Flux.Chain{<:Tuple{Vararg{Dense}}}) =
     vcat([size(layer.weight)[2] for layer in ChainDecoder.layers], [size(ChainDecoder.layers[end].weight)[1]])
 
@@ -55,20 +67,22 @@ Plot a matrix of recovery images by number for different measurement numbers
 The VAE and VAE decoder should never have a final activation
 VAE can be given as nothing if "inrange=false" is given.
 """
-function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::Vector{<:Integer}, images::Vector{<:AbstractArray}; recoveryfn=recoversignal, presigmoid=true, inrange=true, typeofdata=:test, plotwidth=600, rng=TaskLocalRNG(), kwargs...)
+function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::Vector{<:Integer}, images::Vector{<:AbstractArray}; recoveryfn=recoversignal, presigmoid=true, inrange=true, typeofdata=:test, rng=TaskLocalRNG(), plotwidth=600, kwargs...)
     #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
-    decoder = VAE.decoder
     if !presigmoid #preprocess the models
-        VAE = sigmoid ∘ VAE
-        decoder = sigmoid ∘ decoder
+        lastlayer = VAE.decoder.layers[end]
+        newlastlayer = Dense(lastlayer.weight, false, sigmoid)
+        VAE = FullVae(VAE.encoder, Chain(VAE.decoder.layers[1:end-1]..., newlastlayer))
     end
+    decoder = VAE.decoder
+
     signalimages = Vector{Vector{Float32}}(undef, length(images))
     plotimages = Matrix{Vector{Float32}}(undef, length(images), length(aimedmeasurementnumbers))
     recoveryerrors = Matrix{Float32}(undef, length(images), length(aimedmeasurementnumbers))
-    F = sampleFourierwithoutreplacement(length(images[1]), length(images[1]))
+    F = fouriermatrix(length(images[1]))
     n = length(images[1])
     @threads for (i, img) in collect(enumerate(images))
-        truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange)
+        truesignal, plottedtruesignal = _preprocess_MNIST_truesignal(img, VAE, presigmoid, inrange, rng=rng)
         signalimages[i] = plottedtruesignal
         @threads for (j, aimedm) in collect(enumerate(aimedmeasurementnumbers))
             freq = rand(rng, Bernoulli(aimedm / n), n)
@@ -98,23 +112,54 @@ function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::Vector{<:In
     f
 end
 
-function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
-    #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
-    images = imagesfromnumbers(numbers, typeofdata, rng=rng)
-    plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; kwargs...)
+"""
+Deal with inputs as arrays or single entries
+"""
+@generated function plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, numbers; typeofdata=:test, rng=TaskLocalRNG(), kwargs...)
+
+    if aimedmeasurementnumbers <: Integer
+        measnum = :([aimedmeasurementnumbers])
+    elseif aimedmeasurementnumbers <: Vector{<:Integer}
+        measnum = :(aimedmeasurementnumbers)
+    else
+        throw(MethodError(plot_MNISTrecoveries, (VAE, aimedmeasurementnumbers, numbers)))
+    end
+
+    if !(numbers <: Vector)
+        imagesexpr = :([images])
+    else
+        imagesexpr = :(images)
+    end
+
+    return quote
+        images = imagesfromnumbers(numbers, typeofdata, rng=rng)
+        plot_MNISTrecoveries(VAE, $measnum, $imagesexpr, rng=rng; kwargs...)
+    end
 end
+
+"Compare many models; this plots the recoveries for each model, keeping the measurements and signal images consistent as much as possible"
+function compare_models_MNISTrecoveries(models::Vector{<:FullVae}, aimedmeasurementnumbers, numbers; typeofdata=:test, rng=TaskLocalRNG(), kwargs...)
+    returnplots = []
+    images = imagesfromnumbers(numbers, typeofdata, rng=rng)
+    seed = rand(rng, 1:500)
+    for vae in models
+        rng = Xoshiro(seed)
+        push!(returnplots, plot_MNISTrecoveries(vae, aimedmeasurementnumbers, numbers, rng=rng; kwargs...))
+    end
+    returnplots
+end
+
 
 function plot_MNISTrecoveries(recoveryfns::Vector{<:Function}, VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}; rng=TaskLocalRNG(), typeofdata=:test, kwargs...)
     #TODO incorporate this into the main mrecovery method with the recovery function as parameter.
     images = imagesfromnumbers(numbers, typeofdata, rng=rng)
     plots = []
     for fnpick in recoveryfns
-        @time myplot = plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; recoveryfn=fnpick, kwargs...)
+        @time myplot = plot_MNISTrecoveries(VAE, aimedmeasurementnumbers, images; recoveryfn=fnpick, rng=rng, kwargs...)
         push!(plots, myplot)
     end
     plots
 end
-
 
 
 function plot_MNISTrecoveries(VAE::FullVae, aimedmeasurementnumbers::AbstractArray{<:Integer}, numbers::AbstractArray{<:Integer}, recoveryfunctions::AbstractArray; seed=53, kwargs...)

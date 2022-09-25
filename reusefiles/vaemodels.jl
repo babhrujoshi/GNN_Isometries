@@ -1,9 +1,13 @@
+module VaeModels
+
 using Flux, MLDatasets
 using Flux: logitbinarycrossentropy, pullback, DataLoader, params
 using BSON: @save
 using Statistics, LinearAlgebra, FFTW
 using Logging, ProgressLogging, TensorBoardLogger
+using Random
 
+export FullVae, VaeEncoder, makeVae, trainVae, trainstdVaeonMNIST, train_incoherentVAE_onMNIST
 
 struct VaeEncoder{T,V,L}
     encoderbody::T
@@ -26,22 +30,23 @@ struct FullVae{T}
 end
 Flux.@functor FullVae
 
+
 #forward pass
-function (m::FullVae)(x::AbstractArray)
+function (m::FullVae)(x::AbstractArray; rng=TaskLocalRNG())
     μ, logvar = m.encoder(x)
-    randcoeffs = randn(Float32, size(logvar))
+    randcoeffs = randn(rng, Float32, size(logvar))
     z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
     m.decoder(z)
 end
 
 #averaged forward pass
-function (m::FullVae)(x::AbstractArray, n::Integer)
+function (m::FullVae)(x::AbstractArray, n::Integer; rng=TaskLocalRNG())
     #preformance gain available by getting mu and logvar once, and sampling many times
     acc = zero(x)
     μ, logvar = m.encoder(x)
 
     for i in 1:n
-        randcoeffs = randn(Float32, size(logvar))
+        randcoeffs = randn(rng, Float32, size(logvar))
         z = μ .+ randcoeffs .* exp.(0.5f0 .* logvar)
         m.decoder(z)
         acc .+= m.decoder(m.encoder(x)[1])
@@ -50,7 +55,7 @@ function (m::FullVae)(x::AbstractArray, n::Integer)
 end
 
 
-function makeVAE(hidden, secondhidden, zlayer)
+function makeVae(hidden, secondhidden, zlayer)
     FullVae(
         VaeEncoder(
             Chain(
@@ -123,7 +128,7 @@ function trainVae(β, λ, model, pars::Flux.Params, traindata, opt::Flux.Optimis
 end
 
 function trainstdVaeonMNIST()
-    model = makeVAE(512, 512, 16)
+    model = makeVae(512, 512, 16)
     batchsize = 64
 
     traindata = reshape(MNIST(Float32, :train).features[:, :, 1:end], 28^2, :)
@@ -228,7 +233,7 @@ function trainincoherentVae(vaelossfn, β, λ, α, F, model, pars::Flux.Params, 
 end
 
 function train_incoherentVAE_onMNIST(; vaelossfn=VAEloss_boundedcoherence, numepochs=20, β=1.0f0, λ=1.0f-2, α=1.0f4, kwargs...)
-    model = makeVAE(512, 512, 16)
+    model = makeVae(512, 512, 16)
     batchsize = 64
 
     traindata = reshape(MNIST(Float32, :train).features[:, :, 1:end], 28^2, :)
@@ -239,6 +244,6 @@ function train_incoherentVAE_onMNIST(; vaelossfn=VAEloss_boundedcoherence, numep
     trainincoherentVae(vaelossfn, β, λ, α, F, model, params(model), trainloader, Flux.Optimise.ADAM(), numepochs, "./reusefiles/models/", "./reusefiles/logs/"; kwargs...)
 end
 
-
+end
 
 

@@ -62,6 +62,9 @@ function recoversignal(measurements, A, decoder; init_code=randn(Float32, size(d
     decoder(optimise!(loss, p, init_code; kwargs...))
 end
 
+function fouriermatrix(n)
+    F = Float32.(dct(diagm(ones(n)), 2))
+end
 
 function sampleFourierwithoutreplacement(aimed_m, n; rng=TaskLocalRNG())
     F = Float32.(dct(diagm(ones(n)), 2))

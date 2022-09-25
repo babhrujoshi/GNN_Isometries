@@ -28,6 +28,7 @@ function relaxed_recover(measurements, A, generativenet::Flux.Chain; optimlayers
 
     p = (measurements, A, linkstrength, netparts)
 
+    #Get all codes between relevent layers
     codes = [randn(Float32, size(generativenet.layers[1].weight)[2])]
     for index in optimlayers
         push!(codes, randn(Float32, size(generativenet.layers[index].weight)[1]))
